@@ -6,3 +6,5 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+client/src/lib/chat-service.ts
+client/src 2/lib/chat-service.ts
