@@ -434,10 +434,10 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
       {location !== "/new-appointment" && location !== "/listing-details" && location !== "/feature-listing" && location !== "/oversize-feature-sheets" && location !== "/feature-sheet-builder" && location !== "/proof-review" && (
         <Link 
           href="/new-appointment"
-          className="fixed z-[85] flex items-center justify-center text-white rounded-full transition-all hover:opacity-90 top-4 right-4 md:right-28 border border-white"
+          className="fixed z-[90] flex items-center justify-center text-white rounded-full transition-all hover:opacity-90 top-4 right-4 md:right-28 border border-white shrink-0"
           style={{ backgroundColor: "#000000" }}
         >
-          <span className="px-3 py-2.5 md:px-4 md:py-3 text-xs md:text-sm font-bold whitespace-nowrap" style={{ letterSpacing: "0.5px" }}>
+          <span className="px-3 py-2.5 md:px-4 md:py-3 text-[10px] sm:text-xs md:text-sm font-bold whitespace-nowrap" style={{ letterSpacing: "0.5px" }}>
             NEW SERVICE APPOINTMENT
           </span>
         </Link>

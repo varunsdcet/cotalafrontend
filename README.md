@@ -118,7 +118,7 @@ The Vite `@` alias points at `client/src`.
 | `/design-job` | Design job |
 | `/proof-review` | Proof review |
 | `/profile` `/branding` `/preferences` | Account |
-| `/ai-tool` | Coming soon |
+| `/ai-tool` | Marketing kit from listing photos |
 
 ---
 

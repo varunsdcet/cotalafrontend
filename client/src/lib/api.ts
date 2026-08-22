@@ -1029,7 +1029,7 @@ export function getPortalListingDetail(tourid: string | number) {
   return postJson<PortalApiResponse>("listings/detail", { tourid });
 }
 
-export function getPortalListings(params: { search?: string; status?: string } = {}) {
+export function getPortalListings(params: { search?: string; status?: string; per_page?: number } = {}) {
   return postJson<PortalApiResponse>("listings/list", params);
 }
 
