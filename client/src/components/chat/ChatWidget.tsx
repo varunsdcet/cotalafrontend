@@ -32,6 +32,7 @@ import hdrComparisonImg from "@/pages/images/hdr.jpg";
 import twilightExteriorImg from "@/pages/images/cotala-photos/twilight-exterior-1.jpg";
 import twilightImg from "@/pages/images/cotala-photos/twilight.jpg";
 import { ChatMessage } from "./ChatMessage";
+import "./chat-widget.css";
 
 type Message = {
   role: "user" | "assistant";
@@ -1964,42 +1965,44 @@ export function ChatWidget() {
   return (
     <div
       className={
-        isOpen ? "fixed inset-0 z-[120] bg-[#f7f9fb]" : "fixed bottom-2 left-16 right-2 px-0 sm:px-0 sm:bottom-6 sm:right-6 sm:left-auto z-[120]"
+        isOpen
+          ? "cotala-chat-widget cotala-chat-open fixed inset-0 z-[120] bg-black"
+          : "cotala-chat-widget fixed bottom-2 left-16 right-2 px-0 sm:px-0 sm:bottom-6 sm:right-6 sm:left-auto z-[120]"
       }
     >
       {!isOpen ? (
         <button
           type="button"
           onClick={() => setIsOpen(true)}
-          className="h-14 w-14 rounded-full bg-[#b284f6] hover:bg-[#a06ae9] text-white shadow-2xl border border-[#b284f6]/80 flex items-center justify-center"
+          className="cotala-chat-fab h-14 w-14 rounded-full text-white shadow-2xl flex items-center justify-center"
           aria-label="Open chat widget"
         >
           <MessageCircle className="h-6 w-6" />
         </button>
       ) : (
         <div className="h-full w-full flex flex-col">
-          <div className="flex items-center justify-between px-6 py-4 bg-slate-50/90 backdrop-blur-xl border-b border-slate-200">
+          <div className="cotala-chat-header flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => window.history.back()}
-                className="h-9 w-9 rounded-full border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 flex items-center justify-center"
+                className="cotala-chat-icon-btn h-9 w-9 rounded-full border flex items-center justify-center"
                 aria-label="Go back"
                 title="Back"
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
               <div>
-              <p className="text-slate-900 font-bold text-lg">Cotala</p>
-              <p className="text-slate-500 text-xs">Hi {resolvedName}</p>
+              <p className="text-white font-bold text-lg">Cotala</p>
+              <p className="cotala-chat-muted text-xs">Hi {resolvedName}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <div className="text-xs text-slate-500 hidden sm:block">Scheduling Assistant</div>
+              <div className="cotala-chat-muted text-xs hidden sm:block">Scheduling Assistant</div>
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="h-9 w-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center"
+                className="cotala-chat-icon-btn h-9 w-9 rounded-full flex items-center justify-center"
                 aria-label="Close chat widget"
               >
                 <X className="h-4 w-4" />
@@ -2007,7 +2010,7 @@ export function ChatWidget() {
             </div>
           </div>
 
-          <div ref={listRef} className="flex-1 overflow-y-auto p-6 space-y-4 bg-[#f7f9fb] max-w-4xl w-full mx-auto">
+          <div ref={listRef} className="cotala-chat-messages flex-1 overflow-y-auto p-6 space-y-4 max-w-4xl w-full mx-auto">
             {bookingStage === "confirmed" && bookingConfirmation ? (
               <div className="w-full flex flex-col items-center justify-center gap-6">
                 <div className="mb-2 w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center">
@@ -2157,9 +2160,9 @@ export function ChatWidget() {
             </div>
           )}
 
-          <div className="border-t border-slate-200 bg-white/95 backdrop-blur p-4 max-w-4xl w-full mx-auto">
+          <div className="cotala-chat-footer border-t p-4 max-w-4xl w-full mx-auto">
             {bookingStage === "address" && (
-              <div className="mb-3 rounded-2xl border border-slate-200 bg-white shadow-sm p-3">
+              <div className="cotala-chat-panel mb-3 rounded-2xl border p-3 shadow-sm">
                 <div className="mb-2">
                   <h4 className="text-sm font-bold text-slate-900">Property Address (BC)</h4>
                   <p className="text-xs text-slate-500">Type/select full address, city must be in British Columbia</p>
@@ -2214,7 +2217,7 @@ export function ChatWidget() {
               </div>
             )}
             {bookingStage === "city" && (
-              <div className="mb-3 rounded-2xl border border-slate-200 bg-white shadow-sm p-3">
+              <div className="cotala-chat-panel mb-3 rounded-2xl border p-3 shadow-sm">
                 <div className="mb-2">
                   <h4 className="text-sm font-bold text-slate-900">Select BC City</h4>
                   <p className="text-xs text-slate-500">Choose a city we currently serve in British Columbia</p>
@@ -2246,7 +2249,7 @@ export function ChatWidget() {
             )}
             {/* Service selection mini-app */}
             {bookingStage === "selectReorder" && recentOrders.length > 0 && (
-              <div className="mb-3 rounded-2xl border border-slate-200 bg-white shadow-sm p-3">
+              <div className="cotala-chat-panel mb-3 rounded-2xl border p-3 shadow-sm">
                 <div className="mb-2">
                   <h4 className="text-sm font-bold text-slate-900">Reorder Selection</h4>
                   <p className="text-xs text-slate-500">Select one recent order</p>
@@ -2296,7 +2299,7 @@ export function ChatWidget() {
 
             {/* Service selection mini-app */}
             {bookingStage === "category" && categoryOptions.length > 0 && (
-              <div className="mb-3 rounded-2xl border border-slate-200 bg-white shadow-sm p-3">
+              <div className="cotala-chat-panel mb-3 rounded-2xl border p-3 shadow-sm">
                 <div className="mb-2">
                   <h4 className="text-sm font-bold text-slate-900">Category Selection</h4>
                   <p className="text-xs text-slate-500">Select one or more categories</p>
@@ -2364,7 +2367,7 @@ export function ChatWidget() {
 
             {/* Service selection mini-app */}
             {bookingStage === "service" && serviceOptions.length > 0 && (
-              <div className="mb-3 rounded-2xl border border-slate-200 bg-white shadow-sm p-3">
+              <div className="cotala-chat-panel mb-3 rounded-2xl border p-3 shadow-sm">
                 <div className="mb-2">
                   <h4 className="text-sm font-bold text-slate-900">Service Selection</h4>
                   <p className="text-xs text-slate-500">Select one or more services</p>
@@ -2459,7 +2462,7 @@ export function ChatWidget() {
             )}
 
             {bookingStage === "date" && (
-              <div className="mb-3 rounded-2xl border border-slate-200 bg-white shadow-sm p-3">
+              <div className="cotala-chat-panel mb-3 rounded-2xl border p-3 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">
                   <h4 className="text-sm font-bold text-slate-900">
                     {calendarMonth.toLocaleString("en-US", { month: "long", year: "numeric" })}
@@ -2907,14 +2910,14 @@ export function ChatWidget() {
                   }
                 }}
                 placeholder="Type a message..."
-                className="flex-1 h-10 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#b284f6]"
+                className="cotala-chat-input flex-1 h-10 rounded-full border px-4 text-sm outline-none focus:border-[#b388ff]"
               />
               <button
                 type="button"
                 onClick={handleMicClick}
                 disabled={!speechSupported || loading}
                 className={`h-10 w-10 rounded-full text-white flex items-center justify-center disabled:opacity-50 ${
-                  isListening ? "bg-[#b284f6] animate-pulse" : "bg-slate-600 hover:bg-slate-700"
+                  isListening ? "bg-[#b388ff] animate-pulse" : "bg-zinc-700 hover:bg-zinc-600"
                 }`}
                 aria-label={isListening ? "Stop voice input" : "Start voice input"}
                 title={speechSupported ? (isListening ? "Listening..." : "Speak with mic") : "Voice not supported"}
@@ -2925,7 +2928,7 @@ export function ChatWidget() {
                 type="button"
                 onClick={handleSend}
                 disabled={loading || !input.trim()}
-                className="h-10 w-10 rounded-full bg-black hover:bg-slate-800 disabled:opacity-50 text-white flex items-center justify-center"
+                className="cotala-chat-send h-10 w-10 rounded-full disabled:opacity-50 text-white flex items-center justify-center"
                 aria-label="Send message"
               >
                 <Send className="h-4 w-4" />

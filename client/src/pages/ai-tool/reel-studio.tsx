@@ -53,7 +53,7 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
   const [customUrl, setCustomUrl] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  const [look, setLook] = useState<ReelLook>("cinematic");
+  const [look, setLook] = useState<ReelLook>("luxury");
   const [orientation, setOrientation] = useState<ReelOrientation>("portrait");
   const [captions, setCaptions] = useState(true);
   const [voiceOn, setVoiceOn] = useState(false);
@@ -76,7 +76,16 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
     () => ({ look, orientation, captions }),
     [look, orientation, captions],
   );
+  const styleRef = useRef(style);
+  const listingRef = useRef(listing);
+  const brandRef = useRef(brand);
+  const sizeRef = useRef(size);
+  styleRef.current = style;
+  listingRef.current = listing;
+  brandRef.current = brand;
+  sizeRef.current = size;
   const script = useMemo(() => realtorScript(listing, brand), [listing, brand]);
+  const voiceGender = brand.gender === "male" ? "male" : "female";
 
   const pauseAll = useCallback(() => {
     playingRef.current = false;
@@ -99,14 +108,15 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
     if (!active) pauseAll();
   }, [active, pauseAll]);
 
-  const paint = (t: number) => {
+  const paint = useCallback((t: number) => {
     const canvas = canvasRef.current;
     const pack = packRef.current;
     if (!canvas || !pack) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    drawReelScene(ctx, t, pack.beats, listing, brand, pack.assets, size.w, size.h, style);
-  };
+    const { w, h } = sizeRef.current;
+    drawReelScene(ctx, t, pack.beats, listingRef.current, brandRef.current, pack.assets, w, h, styleRef.current);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,7 +126,7 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
     clockRef.current = 0;
     setTime(0);
     const run = async () => {
-      const pack = await loadBeatsAndAssets(photos, brand, listing, look);
+      const pack = await loadBeatsAndAssets(photos, brand, listing);
       if (cancelled) return;
       packRef.current = pack;
       setReady(true);
@@ -129,13 +139,19 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
     };
     // listing/brand captured via paint at play time
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photos, brand.name, brand.headshot, brand.logo, brand.bg, brand.accent, listing.address, listing.price, look]);
+  }, [photos, brand.name, brand.headshot, brand.logo, brand.bg, brand.accent, listing.address, listing.price]);
+
+  useEffect(() => {
+    clockRef.current = 0;
+    setTime(0);
+    const id = requestAnimationFrame(() => paint(0));
+    return () => cancelAnimationFrame(id);
+  }, [look, paint]);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => paint(clockRef.current));
     return () => cancelAnimationFrame(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orientation, captions, look]);
+  }, [orientation, captions, paint]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +161,7 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
       return;
     }
     const run = async () => {
-      const url = await fetchRealtorVoiceUrl(script);
+      const url = await fetchRealtorVoiceUrl(script, voiceGender);
       if (cancelled) return;
       setVoiceUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -157,7 +173,7 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceOn, script]);
+  }, [voiceOn, script, voiceGender]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -209,7 +225,7 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
       stopSpeakRef.current?.();
     }
     return () => cancelAnimationFrame(rafRef.current);
-  }, [playing, duration, listing, brand]);
+  }, [playing, duration, paint]);
 
   const toggle = () => {
     if (!ready || making) return;
@@ -229,14 +245,14 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
           voiceAudioRef.current = a;
           a.currentTime = clockRef.current;
           void a.play().catch(() => {
-            stopSpeakRef.current = speakRealtor(script);
+            stopSpeakRef.current = speakRealtor(script, undefined, voiceGender);
           });
           stopSpeakRef.current = () => {
             a.pause();
             voiceAudioRef.current = null;
           };
         } else {
-          stopSpeakRef.current = speakRealtor(script);
+          stopSpeakRef.current = speakRealtor(script, undefined, voiceGender);
         }
       } else {
         stopSpeakRef.current?.();
@@ -339,13 +355,12 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
               Ready
             </span>
             <span className="text-white/45 text-xs font-mono">
-              {formatDuration(duration)} · {photoCount} photos · {orientation === "portrait" ? "9:16" : "16:9"} · 1080p
+              {formatDuration(duration)} · {photoCount} photos · {orientation === "portrait" ? "9:16" : "16:9"} · 1080p · 60fps
             </span>
           </div>
           <h3 className="text-2xl font-semibold mb-1">Cinematic reel</h3>
           <p className="text-white/60 mb-0 text-sm max-w-xl">
-            Listing photos animated as a walkthrough — push-in, pan, and orbit camera, soft dissolves, captions, music,
-            and a branded end card.
+            Listing photos in three layouts — Cinematic showing card, Luxury just-listed grid, and Montage polaroids.
           </p>
         </div>
       ) : null}
@@ -458,7 +473,7 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
                 </button>
               ))}
             </div>
-            <div className="flex flex-wrap gap-2 mb-3">
+            <div className="flex flex-wrap gap-2 mb-1">
               {(
                 [
                   ["cinematic", "Cinematic"],
@@ -484,6 +499,13 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
                 </button>
               ))}
             </div>
+            <p className="text-[11px] text-white/40 mb-3">
+              {look === "cinematic"
+                ? "Showing card — hero photo + agent panel"
+                : look === "luxury"
+                  ? "Just Listed grid — navy header + photo slots"
+                  : "Polaroid collage — stacked frames on cream"}
+            </p>
             <label className="flex items-center gap-2 text-sm text-white/70 mb-2">
               <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} />
               Captions
@@ -625,7 +647,7 @@ export default function ReelStudio({ photos, listing, brand, fileName, compact, 
               </button>
             </div>
             <p className="text-white/35 text-xs mt-3 mb-0">
-              Preview plays with camera motion and music. Download is 1080p (WebM in Chrome, MP4 in Safari).
+              Preview is live. Download is 1080p · 60fps with parallax grade (Chrome recommended).
             </p>
             {onEditPhoto && photos.length > 0 ? (
               <div className="mt-4">

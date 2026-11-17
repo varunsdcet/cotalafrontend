@@ -17,7 +17,8 @@ import { normalizeCssColor } from "@/lib/normalize-css-color";
 import { buildPrintColorProfilePayload } from "@/lib/print-color-profile";
 import {
   getPrintProductDetails,
-  getUserIdFromStorage,
+  OVERSIZE_FEATURE_SHEET_PRINT_PRODUCT_ID,
+  placeOversizePrintOrder,
   type PrintInventoryStockRow,
   type PrintProductRow,
 } from "@/lib/api";
@@ -32,7 +33,7 @@ import {
   readFeatureSheetAgentBrokerageLogoUrl,
   type FeatureListingFinalSnapshot,
 } from "./feature-listing-preview";
-import { downloadOversizePdfViaApi } from "@/lib/oversize-pdf-api";
+import { downloadOversizePdfViaApi, submitOversizePdfViaApi } from "@/lib/oversize-pdf-api";
 import "./oversize-feature-sheets-order.css";
 
 type OversizePdfInnerPayloadSource = {
@@ -94,6 +95,21 @@ function stocksForPrintProduct(
     return row ? [row] : stocks;
   }
   return stocks;
+}
+
+function glossStockOptions(stocks: PrintInventoryStockRow[]): PrintInventoryStockRow[] {
+  const match100 = stocks.filter((s) => /100\s*lb/i.test(s.name) && /gloss/i.test(s.name));
+  const match111 = stocks.filter((s) => /111\s*lb/i.test(s.name) && /gloss/i.test(s.name));
+  const picked: PrintInventoryStockRow[] = [];
+  const seen = new Set<number>();
+  for (const row of [...match100, ...match111]) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    picked.push(row);
+  }
+  if (picked.length > 0) return picked;
+  const anyGloss = stocks.filter((s) => /gloss/i.test(s.name));
+  return anyGloss.length > 0 ? anyGloss : FALLBACK_GLOSS_STOCKS;
 }
 
 function getTourIdFromSearch(): string {
@@ -216,13 +232,19 @@ function readFeatureListingSessionCache(tourId: string): FeatureListingFinalSnap
   }
 }
 
-/** Quantity → price (CAD-style totals; tune as needed) */
+/** Quantity → CAD total (25 / 50 / 75 / 100 / 250). */
 const oversizeBaseTotals: Record<string, number> = {
-  "25": 91.83,
-  "50": 148.73,
-  "75": 205.61,
-  "100": 262.49,
+  "25": 45,
+  "50": 70,
+  "75": 91.05,
+  "100": 109.6,
+  "250": 198.25,
 };
+
+const FALLBACK_GLOSS_STOCKS: PrintInventoryStockRow[] = [
+  { id: -100, name: "100 lb glossy paper", description: "100 lb glossy paper" },
+  { id: -111, name: "111 lb gloss paper", description: "111 lb gloss paper" },
+];
 
 /**
  * Each sheet: 1632×1056px white frame; safe content 1580×1004 (26px inset) — see `oversize-feature-sheets-order.css`.
@@ -547,6 +569,7 @@ export default function OversizeFeatureSheetsOrder() {
   const sheetPdfRef = useRef<HTMLDivElement>(null);
   const [snapshot, setSnapshot] = useState<FeatureListingFinalSnapshot | null>(null);
   const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [ordering, setOrdering] = useState(false);
 
   const reloadSnapshot = useCallback(() => {
     if (!tourId) {
@@ -597,11 +620,13 @@ export default function OversizeFeatureSheetsOrder() {
         if (cancelled) return;
         if (!res.status || !res.data?.productdetail) {
           setPrintError(res.msg ?? "Could not load product");
+          setStockOptions(FALLBACK_GLOSS_STOCKS);
+          setSelectedStockId(FALLBACK_GLOSS_STOCKS[0]?.id ?? null);
           return;
         }
         const pd = res.data.productdetail;
         const stocks = Array.isArray(res.data.stocks) ? res.data.stocks : [];
-        const opts = stocksForPrintProduct(pd, stocks);
+        const opts = glossStockOptions(stocksForPrintProduct(pd, stocks));
         setProductDetail(pd);
         setStockOptions(opts);
         const def = parseInt((pd.defaultstock ?? "").trim(), 10);
@@ -610,7 +635,10 @@ export default function OversizeFeatureSheetsOrder() {
         setSelectedStockId(initial?.id ?? null);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setPrintError(e instanceof Error ? e.message : "Could not load product");
+        if (cancelled) return;
+        setPrintError(e instanceof Error ? e.message : "Could not load product");
+        setStockOptions(FALLBACK_GLOSS_STOCKS);
+        setSelectedStockId(FALLBACK_GLOSS_STOCKS[0]?.id ?? null);
       })
       .finally(() => {
         if (!cancelled) setPrintLoading(false);
@@ -625,7 +653,7 @@ export default function OversizeFeatureSheetsOrder() {
     [stockOptions, selectedStockId],
   );
 
-  const finalTotal = oversizeBaseTotals[quantity] ?? 91.83;
+  const finalTotal = oversizeBaseTotals[quantity] ?? 45;
 
   const displayAddress = snapshot?.listingAddress ?? "";
   const normalizedPageBgColor = normalizeCssColor(snapshot?.pageBgColor ?? "#ffffff");
@@ -762,15 +790,72 @@ export default function OversizeFeatureSheetsOrder() {
     productDetail,
   ]);
 
-  /** Replace history so browser Back from feature listing does not return to this oversize page. */
   const panelClose = () => {
-    if (tourId) {
-      const snap = snapshot ?? readFeatureListingFinalSnapshot(tourId);
-      if (snap) {
-        seedFeatureListingSessionCacheFromSnapshot(tourId, snap);
+    setLocation(
+      tourId ? `/feature-sheet-builder?id=${encodeURIComponent(tourId)}` : "/feature-sheet",
+      { replace: true },
+    );
+  };
+
+  const placeOrderAndDownload = () => {
+    void (async () => {
+      if (!tourId) {
+        window.alert("Missing listing id.");
+        return;
       }
-    }
-    setLocation(`/feature-listing?id=${encodeURIComponent(tourId)}`, { replace: true });
+      if (!pdfBuildJsonPayload) {
+        window.alert("Sheet preview is missing. Go back and finish the feature sheet first.");
+        return;
+      }
+      setOrdering(true);
+      try {
+        let orderId: string | number | undefined;
+        try {
+          const orderRes = await placeOversizePrintOrder({
+            tour_id: tourId,
+            prod: OVERSIZE_FEATURE_SHEET_PRINT_PRODUCT_ID,
+            stock_id: selectedStockId,
+            stock_name: selectedStock?.name ?? "",
+            quantity,
+            amount: finalTotal,
+            notes: `Feature sheet print · ${selectedStock?.name ?? "stock"} · qty ${quantity}`,
+          });
+          if (orderRes.status) orderId = orderRes.data?.order_id;
+          else console.warn("print-order declined", orderRes.msg ?? orderRes.message);
+        } catch (err) {
+          console.warn("print-order API failed, continuing with PDF download", err);
+        }
+
+        const colorProfile = await buildPrintColorProfilePayload();
+        const inner = {
+          ...buildOversizePdfInnerPayload(pdfBuildJsonPayload),
+          colorProfile,
+          printColorProfile: colorProfile.name,
+          iccProfileBase64: colorProfile.iccBase64,
+          iccProfileFilename: colorProfile.filename,
+          submitMode: "approve_proof_print",
+          printOrder: {
+            productId: OVERSIZE_FEATURE_SHEET_PRINT_PRODUCT_ID,
+            stockId: selectedStockId,
+            stockName: selectedStock?.name ?? "",
+            quantity,
+            amount: finalTotal,
+            orderId,
+          },
+        };
+        try {
+          await submitOversizePdfViaApi(inner);
+        } catch (err) {
+          console.warn("PDF print submit failed", err);
+        }
+        await downloadOversizePdfViaApi(inner, tourId);
+      } catch (e) {
+        console.error(e);
+        window.alert(e instanceof Error ? e.message : "Could not place order or download PDF.");
+      } finally {
+        setOrdering(false);
+      }
+    })();
   };
 
   return (
@@ -781,7 +866,7 @@ export default function OversizeFeatureSheetsOrder() {
             type="button"
             onClick={panelClose}
             className="flex h-10 w-10 items-center justify-center rounded-lg transition-opacity hover:opacity-90"
-            aria-label="Back to feature listing"
+            aria-label="Back to feature sheet editor"
           >
             <img src={whiteBackImg} alt="" className="h-6 w-6 object-contain" />
           </button>
@@ -941,6 +1026,7 @@ export default function OversizeFeatureSheetsOrder() {
                     <option value="50">50</option>
                     <option value="75">75</option>
                     <option value="100">100</option>
+                    <option value="250">250</option>
                   </select>
                   <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                 </div>
@@ -1024,12 +1110,18 @@ export default function OversizeFeatureSheetsOrder() {
             </div>
             <button
               type="button"
-              className="mt-4 w-full rounded-xl bg-zinc-800 py-3.5 text-[14px] font-bold text-white shadow-lg transition hover:bg-zinc-700 active:scale-[0.99]"
-              onClick={() => {
-                alert("Added to cart");
-              }}
+              className="mt-4 w-full rounded-xl bg-zinc-800 py-3.5 text-[14px] font-bold text-white shadow-lg transition hover:bg-zinc-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={ordering || !snapshot}
+              onClick={placeOrderAndDownload}
             >
-              Continue
+              {ordering ? (
+                <span className="inline-flex items-center justify-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Placing order…
+                </span>
+              ) : (
+                "Place order & download"
+              )}
             </button>
           </div>
         </aside>

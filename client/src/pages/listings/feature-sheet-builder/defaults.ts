@@ -200,6 +200,80 @@ export function snapshotToFormState(snap: FeatureListingFinalSnapshot): FeatureS
   };
 }
 
+/** Fill empty builder slots from listing photos without overwriting picks the user already made. */
+export function fillFormImagesFromPhotos(
+  form: FeatureSheetFormState,
+  photos: { cover?: string; primary?: string[]; secondary?: string[]; gallery?: string[] },
+): FeatureSheetFormState {
+  const g = photos.gallery ?? [];
+  const primary = photos.primary ?? [];
+  const secondary = photos.secondary ?? [];
+  const images = {
+    ...form.images,
+    lb: { ...form.images.lb },
+    rg: { ...form.images.rg },
+  };
+  if (!images.hero) images.hero = photos.cover?.trim() || g[0] || null;
+  if (!images.il1) images.il1 = primary[0]?.trim() || g[1] || null;
+  if (!images.rh) images.rh = primary[4]?.trim() || g[5] || null;
+  for (let i = 1; i <= 3; i++) {
+    if (!images.lb[i]) {
+      const u = primary[i]?.trim() || g[i + 1];
+      if (u) images.lb[i] = u;
+    }
+  }
+  const rgSources = [primary[5], ...secondary.slice(0, 8)];
+  for (let i = 1; i <= 9; i++) {
+    if (!images.rg[i]) {
+      const u = rgSources[i - 1]?.trim() || g[i + 5];
+      if (u) images.rg[i] = u;
+    }
+  }
+  return { ...form, images };
+}
+
+export function formToSnapshot(
+  form: FeatureSheetFormState,
+  tourId: string,
+  previous: FeatureListingFinalSnapshot | null,
+): FeatureListingFinalSnapshot {
+  const lb = [form.images.lb[1], form.images.lb[2], form.images.lb[3]].map((u) => u?.trim() || "");
+  const rg = Array.from({ length: 9 }, (_, i) => form.images.rg[i + 1]?.trim() || "");
+  const primaryImages = [
+    form.images.il1?.trim() || "",
+    lb[0],
+    lb[1],
+    lb[2],
+    form.images.rh?.trim() || "",
+    rg[0],
+  ];
+  const secondaryImages = rg.slice(1);
+  return {
+    version: 1,
+    tourId,
+    pageBgColor: form.bgColor || previous?.pageBgColor || FEATURE_SHEET_MLS_BG_COLOR,
+    pageTextColor: form.textColor || previous?.pageTextColor || FEATURE_SHEET_MLS_TEXT_COLOR,
+    listingAddress: form.addr || previous?.listingAddress || "",
+    coverImage: form.images.hero?.trim() || previous?.coverImage || "",
+    primaryImages,
+    secondaryImages,
+    agentName: form.agentName || previous?.agentName || "",
+    agentPhone: form.agentPhone || previous?.agentPhone || "",
+    agentEmail: form.agentEmail || previous?.agentEmail || "",
+    agentWebsite: form.agentWeb || previous?.agentWebsite || "",
+    agentHeadshot: form.images.agent?.trim() || previous?.agentHeadshot || null,
+    agentLogo: form.images.logo?.trim() || previous?.agentLogo || null,
+    price: form.price || previous?.price || null,
+    listingDescription: form.desc || previous?.listingDescription || null,
+    maintFee: form.strata || previous?.maintFee || "",
+    size: form.sqft || previous?.size || "",
+    bedrooms: form.beds || previous?.bedrooms || "",
+    bathrooms: form.baths || previous?.bathrooms || "",
+    tax: form.tax || previous?.tax || "",
+    scrapeData: previous?.scrapeData ?? readValidationScrapeForTour(tourId),
+  };
+}
+
 export const PRINT_LAYOUT = {
   finishWidthIn: 17,
   finishHeightIn: 11,

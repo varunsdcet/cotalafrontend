@@ -152,6 +152,7 @@ export function formatToken(key: SmartTokenKey, value: string) {
   if (key === "beds") return `${value} bd`;
   if (key === "baths") return `${value} ba`;
   if (key === "sqft") return `${value} sf`;
+  if (key === "mls_number") return value ? `MLS® ${value}` : "";
   return value;
 }
 
@@ -175,6 +176,7 @@ export function createKitDesign(
   brand: KitBrand,
   headline: string,
 ): DesignDoc {
+  if (group === "postcard") return createPostcardDesign(photos, listing, brand, headline);
   const { w, h, maxPages } = ARTBOARD[group];
   const photo = photos[0] || "";
   const m = Math.round(Math.min(w, h) * 0.06);
@@ -243,6 +245,199 @@ export function createKitDesign(
     pages: [{ id: "p1", optional: false, objects }],
     limits: { minPages: 1, maxPages },
   };
+}
+
+function createPostcardDesign(photos: string[], listing: KitListing, brand: KitBrand, headline: string): DesignDoc {
+  const { w, h, maxPages } = ARTBOARD.postcard;
+  const sold = /sold/i.test(headline);
+  const status = sold ? "JUST SOLD" : "JUST LISTED";
+  const statusColor = sold ? "#c62828" : "#1f8a4d";
+  const priceLabel = sold ? "SOLD FOR" : "LISTED FOR";
+  const addr = (listing.address || "ADDRESS").toUpperCase();
+  const facts = [listing.sqft && `${listing.sqft} SF`, listing.beds && `${listing.beds} BEDROOMS`, listing.baths && `${listing.baths} BATHROOMS`]
+    .filter(Boolean)
+    .join("  |  ");
+  const meta = [listing.mls && `MLS®: ${listing.mls}`, listing.year && `Year Built: ${listing.year}`].filter(Boolean).join("  |  ");
+  const copy =
+    listing.description?.trim() ||
+    "Thinking of buying or selling? Let me help you reach your goals in this changing market.";
+  const img = (id: string, x: number, y: number, iw: number, ih: number, src: string | undefined): DesignObject => ({
+    ...box(id, x, y, iw, ih),
+    type: "image",
+    assetId: src || photos[0] || null,
+    fit: "cover",
+    adjust: { ...NEUTRAL_ADJUST },
+  });
+  const rect = (id: string, x: number, y: number, rw: number, rh: number, fill: string): DesignObject => ({
+    ...box(id, x, y, rw, rh),
+    type: "shape",
+    shape: "rect",
+    fill,
+    stroke: null,
+    strokeWidth: 0,
+    radius: 0,
+  });
+  const txt = (
+    id: string,
+    x: number,
+    y: number,
+    tw: number,
+    th: number,
+    text: string,
+    size: number,
+    weight: number,
+    color: string,
+    extra?: Partial<Extract<DesignObject, { type: "text" }>>,
+  ): DesignObject => ({
+    ...box(id, x, y, tw, th),
+    type: "text",
+    text,
+    font: extra?.font || "body",
+    size,
+    weight,
+    color,
+    align: extra?.align || "left",
+    tokenKey: extra?.tokenKey ?? null,
+  });
+
+  const leftW = 1180;
+  const gap = 14;
+  const barH = 70;
+  const thumbH = 360;
+  const heroH = h - barH - thumbH;
+  const thumbW = Math.round((leftW - gap) / 2);
+  const rightX = leftW;
+  const rightW = w - leftW;
+  const pad = 48;
+
+  const front: DesignObject[] = [
+    rect("front_bg", 0, 0, w, h, "#ffffff"),
+    img("front_hero", 0, 0, leftW, heroH, photos[0]),
+    rect("front_bar", 0, heroH, leftW, barH, "#1e3a5f"),
+    txt("front_addr", 24, heroH + 16, leftW - 48, 40, addr, 28, 700, "#ffffff", { font: "condensed", tokenKey: "address" }),
+    img("front_t1", 0, heroH + barH, thumbW, thumbH, photos[1]),
+    img("front_t2", thumbW + gap, heroH + barH, leftW - thumbW - gap, thumbH, photos[2]),
+    txt("front_status", rightX + pad, 70, rightW - pad * 2, 70, status, 54, 800, statusColor, { font: "condensed", tokenKey: "headline" }),
+    txt("front_ask", rightX + pad, 170, rightW - pad * 2, 70, "Thinking of Buying or Selling?", 32, 700, "#333333", { font: "display" }),
+    txt(
+      "front_sub",
+      rightX + pad,
+      250,
+      rightW - pad * 2,
+      90,
+      "Let me help you reach your goals in this changing market.",
+      22,
+      400,
+      "#6b7280",
+    ),
+    txt("front_by", rightX + pad, 620, rightW - pad * 2, 28, "MARKETED BY", 14, 600, "#9ca3af"),
+    txt("front_name", rightX + pad, 656, rightW - pad * 2, 44, brand.name || "Your realtor", 30, 700, "#111111", {
+      tokenKey: "agent_name",
+    }),
+    txt("front_phone", rightX + pad, 706, rightW - pad * 2, 32, brand.phone || "", 20, 500, "#111111", { tokenKey: "agent_phone" }),
+    txt("front_email", rightX + pad, 740, rightW - pad * 2, 32, brand.email || "", 18, 400, "#4b5563"),
+    txt("front_web", rightX + pad, 774, rightW - pad * 2, 32, brand.website || "", 18, 400, "#4b5563"),
+    { ...box("front_logo", rightX + pad, h - 160, 220, 80), type: "logo", variant: "dark" },
+  ];
+
+  const bLeft = 1020;
+  const bHeroH = 760;
+  const bThumbH = h - bHeroH;
+  const bThumbW = Math.round((bLeft - gap) / 2);
+  const qr = listing.tourUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(listing.tourUrl)}`
+    : "";
+  const back: DesignObject[] = [
+    rect("back_bg", 0, 0, w, h, "#ffffff"),
+    img("back_hero", 0, 0, bLeft, bHeroH, photos[3] || photos[0]),
+    img("back_t1", 0, bHeroH, bThumbW, bThumbH, photos[4] || photos[1]),
+    img("back_t2", bThumbW + gap, bHeroH, bLeft - bThumbW - gap, bThumbH, photos[5] || photos[2]),
+    ...(qr
+      ? [
+          rect("back_qr_bg", 24, 24, 168, 196, "#ffffff"),
+          img("back_qr", 36, 32, 144, 144, qr),
+          txt("back_qr_cap", 28, 176, 160, 36, "SCAN THE TOUR", 12, 700, "#111111", { align: "center", font: "condensed" }),
+        ]
+      : []),
+    txt("back_addr", bLeft + pad, 48, w - bLeft - pad * 2, 70, addr, 28, 700, "#111111", { font: "condensed", tokenKey: "address" }),
+    txt("back_plabel", bLeft + pad, 130, w - bLeft - pad * 2, 28, priceLabel, 16, 600, "#6b7280"),
+    txt("back_price", bLeft + pad, 158, w - bLeft - pad * 2, 64, listing.price || "", 48, 800, "#111111", {
+      font: "display",
+      tokenKey: "price",
+    }),
+    rect("back_rule", bLeft + pad, 236, w - bLeft - pad * 2, 3, "#d1d5db"),
+    txt("back_facts", bLeft + pad, 256, w - bLeft - pad * 2, 40, facts, 20, 600, "#111111"),
+    txt("back_meta", bLeft + pad, 300, w - bLeft - pad * 2, 36, meta, 18, 400, "#6b7280", { tokenKey: "mls_number" }),
+    txt("back_copy", bLeft + pad, 360, w - bLeft - pad * 2, 280, copy, 18, 400, "#374151"),
+    {
+      ...box("back_shot", bLeft + pad, h - 220, 120, 120),
+      type: "headshot",
+      shape: "circle",
+      ring: "#ffffff",
+    },
+    txt("back_name", bLeft + pad + 140, h - 210, 420, 36, brand.name || "Your realtor", 24, 700, "#111111", {
+      tokenKey: "agent_name",
+    }),
+    txt("back_phone", bLeft + pad + 140, h - 172, 420, 28, brand.phone || "", 16, 500, "#111111", { tokenKey: "agent_phone" }),
+    txt("back_email", bLeft + pad + 140, h - 144, 420, 28, brand.email || "", 15, 400, "#4b5563"),
+    txt("back_web", bLeft + pad + 140, h - 118, 420, 28, brand.website || "", 15, 400, "#4b5563"),
+    txt("back_cotala", 24, h - 36, 360, 24, "Produced / printed by cotala.", 12, 500, "#9ca3af"),
+    txt(
+      "back_legal",
+      400,
+      h - 36,
+      w - 424,
+      24,
+      "This communication is not intended to solicit properties already listed for sale.",
+      11,
+      400,
+      "#9ca3af",
+      { align: "right" },
+    ),
+  ];
+
+  return {
+    schemaVersion: 1,
+    kind: "static",
+    width: w,
+    height: h,
+    pages: [
+      { id: "front", optional: false, objects: front },
+      { id: "back", optional: false, objects: back },
+    ],
+    limits: { minPages: 2, maxPages },
+  };
+}
+
+export function applyPostcardHeadline(doc: DesignDoc, headline: string): DesignDoc {
+  const sold = /sold/i.test(headline);
+  const status = sold ? "JUST SOLD" : "JUST LISTED";
+  const statusColor = sold ? "#c62828" : "#1f8a4d";
+  const priceLabel = sold ? "SOLD FOR" : "LISTED FOR";
+  const next: DesignDoc = structuredClone(doc);
+  for (const page of next.pages) {
+    for (const obj of page.objects) {
+      if (obj.type !== "text") continue;
+      if (obj.id === "front_status") {
+        obj.text = status;
+        obj.color = statusColor;
+      }
+      if (obj.id === "back_plabel") obj.text = priceLabel;
+    }
+  }
+  return next;
+}
+
+export function postcardPhotoSlot(frameId: string): number | null {
+  const map: Record<string, number> = {
+    front_hero: 0,
+    front_t1: 1,
+    front_t2: 2,
+    back_hero: 3,
+    back_t1: 4,
+    back_t2: 5,
+  };
+  return map[frameId] ?? null;
 }
 
 export function scaleDesign(doc: DesignDoc, w: number, h: number): DesignDoc {
@@ -362,7 +557,7 @@ export function applyOps(design: DesignDoc, ops: Op[]): DesignDoc {
 }
 
 export function designStorageKey(tourId: string, group: EditorGroup, index: number) {
-  return `cotala_ai_fabric_v1_${tourId}_${group}_${index}`;
+  return `cotala_ai_fabric_v5_${tourId}_${group}_${index}`;
 }
 
 export function loadStoredDesign(tourId: string, group: EditorGroup, index: number): DesignDoc | null {
@@ -371,6 +566,10 @@ export function loadStoredDesign(tourId: string, group: EditorGroup, index: numb
     if (!raw) return null;
     const parsed = JSON.parse(raw) as DesignDoc;
     if (!parsed?.pages?.length || !parsed.width) return null;
+    if (group === "postcard") {
+      const ids = new Set((parsed.pages[0]?.objects || []).map((o) => o.id));
+      if (!ids.has("front_hero") || !ids.has("front_status") || parsed.pages.length < 2) return null;
+    }
     return parsed;
   } catch {
     return null;
@@ -379,4 +578,36 @@ export function loadStoredDesign(tourId: string, group: EditorGroup, index: numb
 
 export function saveStoredDesign(tourId: string, group: EditorGroup, index: number, doc: DesignDoc) {
   localStorage.setItem(designStorageKey(tourId, group, index), JSON.stringify(doc));
+}
+
+/** Drop stored designs that reference photos no longer on this listing. */
+export function purgeInvalidDesignAssets(tourId: string, validPhotos: string[]) {
+  const valid = new Set(validPhotos.filter(Boolean));
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(`cotala_ai_fabric_v5_${tourId}_`)) continue;
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const doc = JSON.parse(raw) as DesignDoc;
+        let stale = false;
+        for (const page of doc.pages || []) {
+          for (const obj of page.objects || []) {
+            if (obj.type !== "image" || !obj.assetId) continue;
+            if (valid.has(obj.assetId)) continue;
+            if (obj.assetId.startsWith("data:") || obj.assetId.startsWith("blob:")) continue;
+            stale = true;
+            break;
+          }
+          if (stale) break;
+        }
+        if (stale) localStorage.removeItem(key);
+      } catch {
+        localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    /* ignore quota */
+  }
 }

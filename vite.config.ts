@@ -2,8 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import { metaImagesPlugin } from "./vite-plugin-meta-images";
-import { cotalaCanadaProxy } from "./vite-plugin-cotala-proxy";
+import { metaImagesPlugin } from "./vite-plugin-meta-images.ts";
+import { cotalaCanadaProxy } from "./vite-plugin-cotala-proxy.ts";
 
 export default defineConfig({
   plugins: [
@@ -42,6 +42,10 @@ export default defineConfig({
     proxy: {
       // /cotala-api is handled by cotalaCanadaProxy so requests
       // look like the live Canada portal at /newcotala24/.
+      "/api/tts": {
+        target: "http://127.0.0.1:5001",
+        changeOrigin: true,
+      },
       "/zeptomail": {
         target: "https://api.zeptomail.in",
         changeOrigin: true,

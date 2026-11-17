@@ -369,7 +369,7 @@ export function renderFeatureSheetPanels(state: FeatureSheetFormState): Rendered
   const sqftLine = (v: string) => (v.trim() ? `${esc(v)} sqft` : "-");
 
   const heroH = imgs.hero
-    ? `<img src="${imgs.hero}" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(${heroScale});transform-origin:center;" alt="Property">`
+    ? `<img src="${imgs.hero}" decoding="async" fetchpriority="high" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(${heroScale});transform-origin:center;" alt="Property">`
     : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;background:#e0e0e0"><span style='font-size:9px;color:#bbb'>Exterior hero photo</span></div>`;
 
   const hr = `<div style="border-top:0.5px solid ${txtColor}; margin: 3px 0; opacity: 0.6;"></div>`;
@@ -575,7 +575,7 @@ export function renderFeatureSheetPanels(state: FeatureSheetFormState): Rendered
     `</div>`;
 
   const il1H = imgs.il1
-    ? `<img src="${imgs.il1}" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Interior">`
+    ? `<img src="${imgs.il1}" decoding="async" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Interior">`
     : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;background:#d8d8d8"><span style='font-size:9px;color:#bbb'>Left large photo — e.g. kitchen</span></div>`;
 
   let lbPhotos = "";
@@ -583,7 +583,7 @@ export function renderFeatureSheetPanels(state: FeatureSheetFormState): Rendered
     lbPhotos +=
       `<div style="flex:1;width:100%;height:100%;overflow:hidden;background:${i === 2 ? "#ccc" : "#d4d4d4"}">` +
       (imgs.lb[i]
-        ? `<img src="${imgs.lb[i]}" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Interior ${i + 1}">`
+        ? `<img src="${imgs.lb[i]}" decoding="async" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Interior ${i + 1}">`
         : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:8px;color:#bbb">Bottom ${i}</div>`) +
       `</div>`;
   }
@@ -596,7 +596,7 @@ export function renderFeatureSheetPanels(state: FeatureSheetFormState): Rendered
     `</div>`;
 
   const rhH = imgs.rh
-    ? `<img src="${imgs.rh}" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Interior hero">`
+    ? `<img src="${imgs.rh}" decoding="async" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Interior hero">`
     : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;background:#d0d0d0"><span style='font-size:9px;color:#bbb'>Right hero photo — e.g. living room</span></div>`;
 
   let rgPhotos = "";
@@ -604,7 +604,7 @@ export function renderFeatureSheetPanels(state: FeatureSheetFormState): Rendered
     rgPhotos +=
       `<div style="width:100%;height:100%;overflow:hidden;background:${j % 2 ? "#d8d8d8" : "#ccc"}">` +
       (imgs.rg[j]
-        ? `<img src="${imgs.rg[j]}" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Grid ${j}">`
+        ? `<img src="${imgs.rg[j]}" decoding="async" style="width:100%;height:100%;object-fit:cover;display:block;" alt="Grid ${j}">`
         : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:8px;color:#bbb">Photo ${j}</div>`) +
       `</div>`;
   }

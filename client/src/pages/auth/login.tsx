@@ -238,7 +238,9 @@ export default function Login() {
                   </label>
                   <input
                     id="realtorId"
-                    type="email"
+                    type="text"
+                    inputMode="email"
+                    autoComplete="username"
                     className="form-control text-white block w-full rounded-md border border-white/20 bg-black/40 px-3 py-2 text-sm outline-none focus:border-white focus:ring-1 focus:ring-white"
                     value={realtorId}
                     onChange={(e) => setRealtorId(e.target.value)}
@@ -343,7 +345,7 @@ export default function Login() {
                 height={50}
               />
               <div>
-                <h5 className="fw-semibold mb-0">1800-345-242&nbsp;</h5>
+                <h5 className="fw-semibold mb-0">604-514-9589&nbsp;</h5>
               </div>
             </div>
           </div>

@@ -8,14 +8,16 @@ import KitLoader from "./kit-loader";
 import { kitBtn } from "./kit-ui";
 import { stopSpeechSynthesis, usePauseWhenHidden } from "./studio-playback";
 import {
-  SLIDE_H,
-  SLIDE_W,
+  type SlideshowLook,
   drawSlideshowFrame,
   fetchRealtorVoiceUrl,
   realtorScript,
   recordSlideshow,
+  slideshowDuration,
+  slideshowPhotoLimit,
+  slideshowSize,
+  slideshowVoiceDelay,
   speakRealtor,
-  speechSeconds,
 } from "./slideshow";
 
 type Props = {
@@ -24,9 +26,10 @@ type Props = {
   brand: KitBrand;
   fileName: string;
   active?: boolean;
+  onBrandGender?: (gender: "male" | "female") => void;
 };
 
-export default function SlideshowStudio({ photos, listing, brand, fileName, active = true }: Props) {
+export default function SlideshowStudio({ photos, listing, brand, fileName, active = true, onBrandGender }: Props) {
   const sectionRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const clockRef = useRef(0);
@@ -39,6 +42,12 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
   const logoRef = useRef<HTMLImageElement | null>(null);
   const musicRef = useRef<HTMLAudioElement | null>(null);
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceUrlRef = useRef<string | null>(null);
+  const voiceOnRef = useRef(true);
+  const scriptRef = useRef("");
+  const lookRef = useRef<SlideshowLook>("classic");
+  const voiceGenderRef = useRef<"male" | "female">(brand.gender === "male" ? "male" : "female");
+  const voiceArmedRef = useRef(false);
 
   const [script, setScript] = useState(() => realtorScript(listing, brand));
   const [ready, setReady] = useState(false);
@@ -50,16 +59,21 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
   const [voiceUrl, setVoiceUrl] = useState<string | null>(null);
   const [voiceReady, setVoiceReady] = useState(false);
   const [musicOn, setMusicOn] = useState(true);
+  const [look, setLook] = useState<SlideshowLook>("classic");
+  const [voiceOn, setVoiceOn] = useState(true);
   const musicSrc = useMemo(() => libraryTrackUrl(DEFAULT_TRACK_ID), []);
+  const voiceGender = brand.gender === "male" ? "male" : "female";
+  const size = slideshowSize(look);
   const duration = useMemo(
-    () => Math.max(speechSeconds(script) + 2.4, Math.min(photos.length, 12) * 3.8 + 2.4),
-    [script, photos.length],
+    () => slideshowDuration(look, Math.min(photos.length, slideshowPhotoLimit(look))),
+    [look, photos.length],
   );
 
   const pauseAll = useCallback(() => {
     playingRef.current = false;
     setPlaying(false);
     cancelAnimationFrame(rafRef.current);
+    voiceArmedRef.current = false;
     stopSpeakRef.current?.();
     stopSpeakRef.current = null;
     voiceAudioRef.current?.pause();
@@ -79,7 +93,19 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    drawSlideshowFrame(ctx, t, imagesRef.current, listing, brand, headshotRef.current, script, duration, SLIDE_W, SLIDE_H, logoRef.current);
+    drawSlideshowFrame(
+      ctx,
+      t,
+      imagesRef.current,
+      listing,
+      brand,
+      headshotRef.current,
+      duration,
+      size.w,
+      size.h,
+      logoRef.current,
+      look,
+    );
   };
 
   useEffect(() => {
@@ -87,10 +113,18 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
   }, [listing.address, listing.price, listing.beds, listing.baths, listing.sqft, listing.description, brand.name]);
 
   useEffect(() => {
+    voiceUrlRef.current = voiceUrl;
+    voiceOnRef.current = voiceOn;
+    scriptRef.current = script;
+    lookRef.current = look;
+    voiceGenderRef.current = voiceGender;
+  }, [voiceUrl, voiceOn, script, look, voiceGender]);
+
+  useEffect(() => {
     let cancelled = false;
     setReady(false);
     const run = async () => {
-      const imgs = (await Promise.all(photos.slice(0, 12).map((u) => loadReelImage(u)))).filter(Boolean) as HTMLImageElement[];
+      const imgs = (await Promise.all(photos.slice(0, slideshowPhotoLimit(look)).map((u) => loadReelImage(u)))).filter(Boolean) as HTMLImageElement[];
       const [head, logo] = await Promise.all([
         brand.headshot ? loadReelImage(brand.headshot) : Promise.resolve(null),
         brand.logo ? loadReelImage(brand.logo) : Promise.resolve(null),
@@ -109,15 +143,19 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
       pauseAll();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photos, brand.headshot, brand.logo]);
+  }, [photos, brand.headshot, brand.logo, look]);
 
   useEffect(() => {
     let cancelled = false;
     setVoiceReady(false);
     if (voiceUrl) URL.revokeObjectURL(voiceUrl);
     setVoiceUrl(null);
+    if (!voiceOn) {
+      setVoiceReady(true);
+      return;
+    }
     const run = async () => {
-      const url = await fetchRealtorVoiceUrl(script);
+      const url = await fetchRealtorVoiceUrl(script, voiceGender);
       if (cancelled) return;
       setVoiceUrl(url);
       setVoiceReady(true);
@@ -127,7 +165,7 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [script]);
+  }, [script, voiceGender, voiceOn]);
 
   useEffect(() => {
     return () => {
@@ -138,7 +176,7 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
   useEffect(() => {
     const audio = musicRef.current;
     if (!audio) return;
-    audio.volume = voiceUrl ? 0.12 : 0.45;
+    audio.volume = voiceOn && voiceUrl ? 0.12 : 0.45;
     if (playing && musicOn) {
       try {
         const len = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 36;
@@ -150,7 +188,7 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
     } else {
       audio.pause();
     }
-  }, [playing, musicOn, voiceUrl]);
+  }, [playing, musicOn, voiceUrl, voiceOn]);
 
   useEffect(() => {
     return () => pauseAll();
@@ -165,6 +203,7 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
       if (clockRef.current >= duration) {
         clockRef.current = duration;
         playingRef.current = false;
+        voiceArmedRef.current = false;
         setPlaying(false);
         setTime(duration);
         paint(duration - 0.001);
@@ -173,6 +212,31 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
       }
       setTime(clockRef.current);
       paint(clockRef.current);
+      if (!voiceArmedRef.current && voiceOnRef.current) {
+        const delay = slideshowVoiceDelay(lookRef.current);
+        if (clockRef.current + 0.001 >= delay) {
+          voiceArmedRef.current = true;
+          const offset = Math.max(0, clockRef.current - delay);
+          if (voiceUrlRef.current) {
+            const a = new Audio(voiceUrlRef.current);
+            voiceAudioRef.current = a;
+            try {
+              a.currentTime = offset;
+            } catch {
+              /* not seekable yet */
+            }
+            void a.play().catch(() => {
+              stopSpeakRef.current = speakRealtor(scriptRef.current, undefined, voiceGenderRef.current);
+            });
+            stopSpeakRef.current = () => {
+              a.pause();
+              voiceAudioRef.current = null;
+            };
+          } else {
+            stopSpeakRef.current = speakRealtor(scriptRef.current, undefined, voiceGenderRef.current);
+          }
+        }
+      }
       rafRef.current = requestAnimationFrame(loop);
     };
     if (playing) {
@@ -182,17 +246,25 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
     } else {
       playingRef.current = false;
       cancelAnimationFrame(rafRef.current);
+      voiceArmedRef.current = false;
       stopSpeakRef.current?.();
     }
     return () => cancelAnimationFrame(rafRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, duration, script, listing, brand]);
+  }, [playing, duration, listing, brand, look]);
 
   const seek = (next: number) => {
     const t = Math.max(0, Math.min(duration, next));
     clockRef.current = t;
     setTime(t);
     paint(t);
+    if (playingRef.current) {
+      voiceArmedRef.current = false;
+      stopSpeakRef.current?.();
+      stopSpeakRef.current = null;
+      voiceAudioRef.current?.pause();
+      voiceAudioRef.current = null;
+    }
   };
 
   const toggle = () => {
@@ -201,30 +273,14 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
       clockRef.current = 0;
       setTime(0);
     }
-    setPlaying((p) => {
-      const next = !p;
-      if (next) {
-        stopSpeakRef.current?.();
-        if (voiceUrl) {
-          const a = new Audio(voiceUrl);
-          voiceAudioRef.current = a;
-          a.currentTime = clockRef.current;
-          void a.play().catch(() => {
-            stopSpeakRef.current = speakRealtor(script);
-          });
-          stopSpeakRef.current = () => {
-            a.pause();
-            voiceAudioRef.current = null;
-          };
-        } else {
-          stopSpeakRef.current = speakRealtor(script);
-        }
-      } else {
-        stopSpeakRef.current?.();
-      }
-      return next;
-    });
+    setPlaying((p) => !p);
   };
+
+  useEffect(() => {
+    pauseAll();
+    clockRef.current = 0;
+    setTime(0);
+  }, [look, pauseAll]);
 
   const make = async () => {
     setError(null);
@@ -237,8 +293,9 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
         listing,
         brand,
         script,
-        voiceUrl,
+        voiceUrl: voiceOn ? voiceUrl : null,
         music: musicOn,
+        look,
         onProgress: setProgress,
       });
       const ext = blob.type.includes("mp4") ? "mp4" : "webm";
@@ -258,27 +315,32 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
             <span className="w-1.5 h-1.5 rounded-full bg-[#E8A13D]" />
             Ready
           </span>
-          <span className="text-white/45 text-xs font-mono">16:9 · 1080p · cinematic + AI voice</span>
+          <span className="text-white/45 text-xs font-mono">
+            {size.w}×{size.h} · 60fps · 20 Mbps
+          </span>
         </div>
         <h3 className="text-2xl font-semibold mb-1">Slideshow</h3>
         <p className="text-white/60 mb-0 text-sm max-w-xl">
-          Listing photos with cinematic camera motion and your headshot as a talking realtor.
+          Sharp listing photos in the Classic, Square, and Just listed layouts — same look as the reference videos.
         </p>
       </div>
 
       {error ? <p className="text-red-400 text-sm mb-3">{error}</p> : null}
 
-      {!brand.headshot ? (
-        <p className="text-amber-300/80 text-sm mb-3">Add a realtor headshot in Profile so the talking photo is you.</p>
+      {look !== "square" && !brand.headshot ? (
+        <p className="text-amber-300/80 text-sm mb-3">Add a realtor headshot in Profile so the closing card is you.</p>
       ) : null}
 
       {photos.length === 0 ? (
         <p className="text-white/50">No photos on this listing to build a slideshow.</p>
       ) : (
         <div className="flex flex-wrap gap-8 items-start">
-          <div className="relative" style={{ width: 560, maxWidth: "100%" }}>
-            <div className="relative bg-black overflow-hidden rounded-xl" style={{ aspectRatio: "16 / 9", border: "1px solid rgba(255,255,255,0.12)" }}>
-              <canvas ref={canvasRef} width={SLIDE_W} height={SLIDE_H} className="w-full h-full" />
+          <div className="relative" style={{ width: look === "square" ? 420 : 640, maxWidth: "100%" }}>
+            <div
+              className="relative bg-black overflow-hidden rounded-xl"
+              style={{ aspectRatio: `${size.w} / ${size.h}`, border: "1px solid rgba(255,255,255,0.12)" }}
+            >
+              <canvas ref={canvasRef} width={size.w} height={size.h} className="w-full h-full" />
               <button
                 type="button"
                 onClick={toggle}
@@ -322,20 +384,81 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
           </div>
 
           <div className="flex-1 min-w-[240px] max-w-md">
-            <p className="text-white font-medium mb-1">Talking realtor</p>
-            <p className="text-white/50 text-sm mb-3">
-              {brand.name || "Your photo"} speaks this script while the slideshow plays.
-              {voiceReady && voiceUrl ? " AI voice ready." : voiceReady ? " Using browser voice." : " Preparing voice…"}
+            <p className="text-white font-medium mb-2">Look</p>
+            <div className="flex flex-wrap gap-2 mb-1">
+              {(
+                [
+                  ["classic", "Classic"],
+                  ["square", "Square"],
+                  ["listed", "Just listed"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    setPlaying(false);
+                    setLook(id);
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-full border"
+                  style={{
+                    borderColor: look === id ? "#B082F2" : "rgba(255,255,255,0.18)",
+                    color: look === id ? "#fff" : "rgba(255,255,255,0.6)",
+                    background: look === id ? "rgba(176,130,242,0.15)" : "transparent",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-white/40 mb-4">
+              {look === "classic"
+                ? "Title card, full-bleed photos, frost stats bar, agent outro"
+                : look === "square"
+                  ? "Centered address overlay, logo badge, equal-housing mark"
+                  : "Diagonal just listed, feature callouts, showing CTA, agent card"}
             </p>
-            <textarea
-              value={script}
-              onChange={(e) => setScript(e.target.value)}
-              rows={6}
-              className="w-full rounded-lg px-3 py-2 text-sm bg-black/40 border border-white/15 text-white mb-3"
-            />
+            <label className="flex items-center gap-2 text-sm text-white/70 mb-2">
+              <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} />
+              AI voiceover (natural)
+            </label>
+            {voiceOn ? (
+              <>
+                <p className="text-white/50 text-sm mb-2">
+                  {voiceReady && voiceUrl
+                    ? `Natural ${voiceGender} voice ready.`
+                    : voiceReady
+                      ? `Using browser ${voiceGender} voice.`
+                      : "Preparing a natural voice…"}
+                </p>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs text-white/45">Voice</span>
+                  {(["female", "male"] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => onBrandGender?.(g)}
+                      className={`text-xs uppercase tracking-wide px-3 py-1.5 rounded-lg border ${
+                        voiceGender === g
+                          ? "bg-white text-black border-white"
+                          : "border-white/25 text-white/65 hover:border-white/50"
+                      }`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={script}
+                  onChange={(e) => setScript(e.target.value)}
+                  rows={5}
+                  className="w-full rounded-lg px-3 py-2 text-sm bg-black/40 border border-white/15 text-white mb-3"
+                />
+              </>
+            ) : null}
             <label className="flex items-center gap-2 text-sm text-white/70 mb-3">
               <input type="checkbox" checked={musicOn} onChange={(e) => setMusicOn(e.target.checked)} />
-              Music under voice
+              Music bed
             </label>
             <div className="flex flex-wrap gap-2">
               <button
@@ -355,15 +478,19 @@ export default function SlideshowStudio({ photos, listing, brand, fileName, acti
                 <Download size={14} />
                 {making ? `Rendering ${progress}%` : "Download slideshow"}
               </button>
-              <button
-                type="button"
-                className="text-sm uppercase tracking-wide border border-white/30 text-white px-4 py-2 rounded-xl"
-                onClick={() => setScript(realtorScript(listing, brand))}
-              >
-                Rewrite script
-              </button>
+              {voiceOn ? (
+                <button
+                  type="button"
+                  className="text-sm uppercase tracking-wide border border-white/30 text-white px-4 py-2 rounded-xl"
+                  onClick={() => setScript(realtorScript(listing, brand))}
+                >
+                  Rewrite script
+                </button>
+              ) : null}
             </div>
-            <p className="text-white/35 text-xs mt-3 mb-0">16:9 MP4/WebM with realtor photo, AI voice, and music bed.</p>
+            <p className="text-white/35 text-xs mt-3 mb-0">
+              MP4/WebM at reference size and bitrate. Photos stay sharp — no grade, no karaoke captions.
+            </p>
           </div>
         </div>
       )}

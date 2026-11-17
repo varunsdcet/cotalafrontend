@@ -6,6 +6,15 @@ import {
   type ListingWithMlx2Response,
   type ListingWithMlx2Tour,
 } from "@/lib/api";
+import {
+  fetchFeatureSheetListingPhotos,
+  type FeatureSheetPhotoSet,
+} from "@/lib/feature-sheet-photos";
+import {
+  persistFeatureListingFinalSnapshot,
+  type FeatureListingFinalSnapshot,
+  type ScrapePayload,
+} from "@/pages/listings/feature-listing-preview";
 
 const FULL_PUBLIC_KEY = "yU87Ps32f";
 
@@ -348,11 +357,151 @@ async function storeScrapeAndSelection(
       totalExtras: mdx["Total Extras"] ?? "",
     }),
   );
+
+  return validatorPayload as ScrapePayload | null;
+}
+
+type StoredSheetSelection = {
+  tourid?: string | number;
+  fullAddress?: string;
+  mls?: string;
+  description?: string;
+  agentName?: string;
+  agentPhone?: string;
+  agentEmail?: string;
+  agentWebsite?: string;
+  tax?: string;
+  maintFee?: string;
+  size?: string;
+  bedrooms?: string;
+  bathrooms?: string;
+};
+
+function readStoredSelection(): StoredSheetSelection | null {
+  try {
+    const raw = window.localStorage.getItem("cotala_feature_sheet_selection");
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredSheetSelection;
+  } catch {
+    return null;
+  }
+}
+
+function readStoredScrape(tourId: string): ScrapePayload | null {
+  try {
+    const raw = window.localStorage.getItem("cotala_feature_validation_scrape");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { tourId?: string | number; scrape?: ScrapePayload };
+    if (parsed?.scrape && String(parsed.tourId ?? "") === String(tourId)) return parsed.scrape;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function readStoredAgent(): Record<string, unknown> | null {
+  try {
+    const raw = window.localStorage.getItem("cotala_feature_sheet_agent");
+    if (!raw) return null;
+    const p = JSON.parse(raw) as { agent?: Record<string, unknown> };
+    return p.agent ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function looksLikeUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s) || s.startsWith("data:") || s.startsWith("//");
+}
+
+function strField(v: unknown): string {
+  return typeof v === "string" ? v.trim() : v != null ? String(v).trim() : "";
+}
+
+/**
+ * Writes the Finished-Editing snapshot so `/feature-sheet-builder` can load without `/feature-listing`.
+ */
+export async function persistFeatureSheetBuilderSnapshot(args: {
+  tourId: string;
+  listingAddress?: string;
+  scrape?: ScrapePayload | null;
+  agent?: ListingWithMlx2Response["agent"] | Record<string, unknown> | null;
+  selection?: StoredSheetSelection | null;
+  photos?: FeatureSheetPhotoSet;
+}): Promise<FeatureListingFinalSnapshot | null> {
+  const tourId = String(args.tourId ?? "").trim();
+  if (!tourId) return null;
+
+  const scrape = args.scrape ?? readStoredScrape(tourId);
+  const scrapeExtra = (scrape ?? {}) as {
+    theme?: { bgColour?: string; textColour?: string };
+    agent?: { name?: string | null; phone?: string | null; email?: string | null; image?: string | null };
+  };
+  const selection = args.selection ?? readStoredSelection();
+  const agent = (args.agent ?? readStoredAgent() ?? {}) as Record<string, unknown>;
+  const photos = args.photos ?? (await fetchFeatureSheetListingPhotos(tourId));
+
+  const listedPrice = scrape?.listing?.listed_price;
+  const price =
+    listedPrice != null && Number.isFinite(Number(listedPrice)) ? String(listedPrice) : "";
+
+  const headshotRaw =
+    strField(agent.headshot_url) ||
+    strField(agent.coverimage) ||
+    strField(agent.headshot) ||
+    strField(scrapeExtra.agent?.image);
+  const agentHeadshot =
+    headshotRaw && looksLikeUrl(headshotRaw) && !/^(yes|no)$/i.test(headshotRaw) ? headshotRaw : null;
+
+  const agentLogo =
+    strField(agent.broker_logo) || strField(agent.customer_logo) || null;
+
+  const snap: FeatureListingFinalSnapshot = {
+    version: 1,
+    tourId,
+    pageBgColor: strField(agent.bgColour) || scrapeExtra.theme?.bgColour || "#ffffff",
+    pageTextColor: strField(agent.textColour) || scrapeExtra.theme?.textColour || "#374151",
+    listingAddress:
+      args.listingAddress?.trim() ||
+      strField(selection?.fullAddress) ||
+      strField(scrape?.property?.address) ||
+      "",
+    coverImage: photos.cover || photos.gallery[0] || "",
+    primaryImages: photos.primary.length ? photos.primary : photos.gallery.slice(1, 8),
+    secondaryImages: photos.secondary.length
+      ? photos.secondary
+      : photos.gallery.slice(8, 16),
+    agentName: strField(selection?.agentName) || strField(agent.name) || strField(scrapeExtra.agent?.name),
+    agentPhone:
+      strField(selection?.agentPhone) ||
+      strField(agent.phone) ||
+      strField(agent.cell) ||
+      strField(scrapeExtra.agent?.phone),
+    agentEmail: strField(selection?.agentEmail) || strField(agent.email) || strField(scrapeExtra.agent?.email),
+    agentWebsite: strField(selection?.agentWebsite) || strField(agent.url),
+    agentHeadshot,
+    agentLogo,
+    price: price || null,
+    listingDescription: strField(selection?.description) || scrape?.description || null,
+    maintFee: strField(selection?.maintFee) || (scrape?.pricing?.maintenance_fee != null ? String(scrape.pricing.maintenance_fee) : ""),
+    size: strField(selection?.size) || (scrape?.size?.total_sqft != null ? String(scrape.size.total_sqft) : ""),
+    bedrooms:
+      strField(selection?.bedrooms) ||
+      (scrape?.property_details?.bedrooms != null ? String(scrape.property_details.bedrooms) : ""),
+    bathrooms:
+      strField(selection?.bathrooms) ||
+      (scrape?.property_details?.bathrooms != null ? String(scrape.property_details.bathrooms) : ""),
+    tax: strField(selection?.tax) || (scrape?.pricing?.gross_taxes != null ? String(scrape.pricing.gross_taxes) : ""),
+    scrapeData: scrape,
+  };
+
+  persistFeatureListingFinalSnapshot(snap);
+  return snap;
 }
 
 /**
  * Same path as Feature Sheet → Select:
- * listingwithmlx2 → goyoga scrape → localStorage selection/scrape/agent → /feature-listing
+ * listingwithmlx2 → goyoga scrape → snapshot → /feature-sheet-builder
  */
 export async function startFeatureSheetForListing(
   listing: FeatureSheetListingInput,
@@ -362,7 +511,13 @@ export async function startFeatureSheetForListing(
   const userId = getUserIdFromStorage();
   onProgress?.("loading");
   const { tour, agent } = await resolveFullTour(listing, userId);
-  await storeScrapeAndSelection(tour, agent, onProgress);
+  const scrape = await storeScrapeAndSelection(tour, agent, onProgress);
+  await persistFeatureSheetBuilderSnapshot({
+    tourId: String(tour.tourid || tourId),
+    listingAddress: fullAddressFromTour(tour),
+    scrape,
+    agent,
+  });
   onProgress?.("done");
-  return `/feature-listing?id=${encodeURIComponent(String(tour.tourid || tourId))}`;
+  return `/feature-sheet-builder?id=${encodeURIComponent(String(tour.tourid || tourId))}`;
 }

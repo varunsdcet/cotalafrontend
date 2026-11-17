@@ -1,4 +1,4 @@
-const API_ORIGIN = "https://cotala.com/newcotala24/webapi2025dec/api/";
+const API_ORIGIN = "https://appslure.app/cotalacustomer/api/";
 const USE_API_PROXY = false;
 const BASE_URL = import.meta.env.DEV && USE_API_PROXY ? "/cotala-api/" : API_ORIGIN;
 
@@ -697,6 +697,7 @@ export interface OrderService {
   customer_preferred_dateendtime: string | null;
   servicedetails: ServiceDetails;
   tourdetails: OrderServiceTourDetails;
+  ui_status?: string;
 }
 
 export interface OrderDetailsData {
@@ -737,10 +738,50 @@ export interface OrderDetailsData {
   mediashell: string;
 }
 
+export interface OrderPrintJob {
+  id: number | string;
+  prod?: string | number;
+  description?: string;
+  qty?: string | number;
+  rate?: string | number;
+  price?: string | number;
+  gst?: string | number;
+  pst?: string | number;
+  status?: string;
+  colour?: string;
+  longedge?: string;
+  shortedge?: string;
+  stock?: string | number;
+  needs_approval?: boolean;
+  proof_url?: string;
+  product_details?: {
+    id?: number;
+    name?: string;
+    code?: string;
+  };
+}
+
+export interface OrderPaymentRecord {
+  id: number | string;
+  orderid?: number | string;
+  customer?: number | string;
+  method?: string;
+  cardnumber?: string;
+  date?: string;
+  amt?: string | number;
+  depositto?: string;
+  transactionID?: string;
+  operator?: string;
+  paymentlog?: string;
+  forpayment?: number;
+}
+
 export interface OrderDetailsResponse {
   status: boolean;
   order: OrderDetailsData;
   orderservice: OrderService[];
+  print_jobs?: OrderPrintJob[];
+  payments?: OrderPaymentRecord[];
 }
 
 export interface OrderDetailsPayload {
@@ -991,6 +1032,35 @@ export function getPrintProductDetails() {
   );
 }
 
+export interface PlaceOversizePrintOrderBody {
+  tour_id: string | number;
+  prod?: string;
+  stock_id?: number | null;
+  stock_name?: string;
+  quantity: string | number;
+  amount: number;
+  notes?: string;
+}
+
+export interface PlaceOversizePrintOrderResponse {
+  status: boolean;
+  msg?: string;
+  message?: string;
+  data?: {
+    order_id?: number | string;
+    printjob_id?: number | string;
+  };
+}
+
+/** Places an oversize feature-sheet print job (`products.print` id 19). */
+export function placeOversizePrintOrder(body: PlaceOversizePrintOrderBody) {
+  return postJson<PlaceOversizePrintOrderResponse, PlaceOversizePrintOrderBody>(
+    "product/print-order",
+    { ...body, prod: body.prod ?? OVERSIZE_FEATURE_SHEET_PRINT_PRODUCT_ID },
+    true
+  );
+}
+
 export interface PortalApiResponse<T = unknown> {
   status: boolean;
   msg?: string;
@@ -1017,7 +1087,15 @@ export function createPortalOrder(body: Record<string, unknown>) {
   return postJson<PortalApiResponse>("order/addneworder", body);
 }
 
-export function getPortalOrders(params: { search?: string; status?: string; per_page?: number } = {}) {
+export function getPortalOrders(
+  params: {
+    search?: string;
+    status?: string;
+    tab?: "all" | "completed" | "progress";
+    page?: number;
+    per_page?: number;
+  } = {}
+) {
   return postJson<PortalApiResponse>("orders", params);
 }
 
@@ -1025,16 +1103,207 @@ export function getPortalOrderDetail(id: string | number) {
   return postJson<PortalApiResponse>("orders/detail", { id });
 }
 
+export function reportOrderProblem(body: {
+  order_id: string | number;
+  message: string;
+  category?: string;
+}) {
+  return postJson<PortalApiResponse>("orders/report-problem", { ...body, id: body.order_id });
+}
+
 export function getPortalListingDetail(tourid: string | number) {
   return postJson<PortalApiResponse>("listings/detail", { tourid });
 }
 
-export function getPortalListings(params: { search?: string; status?: string; per_page?: number } = {}) {
+export function getPortalListings(
+  params: { search?: string; status?: string; per_page?: number; page?: number } = {},
+) {
   return postJson<PortalApiResponse>("listings/list", params);
 }
 
 export function getPortalProfile() {
   return postJson<PortalApiResponse>("profile/details", {});
+}
+
+export type AccountStatementOrder = {
+  id: number;
+  status: string;
+  date: string;
+  summary: string;
+  total: number;
+  balance: number;
+};
+
+export type AccountStatementLink = {
+  year: number;
+  url: string;
+};
+
+export type AccountStatementData = {
+  years: number[];
+  year: number;
+  month?: number | null;
+  statement_links: AccountStatementLink[];
+  orders: AccountStatementOrder[];
+  totals: {
+    grand_total: number;
+    balance: number;
+  };
+};
+
+export function getPortalAccountStatement(params: { year: number; month?: number }) {
+  return postJson<PortalApiResponse<AccountStatementData>>("profile/statement", {
+    year: params.year,
+    ...(params.month && params.month >= 1 && params.month <= 12 ? { month: params.month } : {}),
+  });
+}
+
+export type MediaBrandFile = {
+  filename?: string;
+  url?: string;
+  upload_field: string;
+  delete_field: string;
+  label: string;
+  description?: string;
+  preview_width?: number;
+  preview_height?: number;
+  full_resolution_url?: string;
+};
+
+export type MediaLayoutOption = {
+  value: string;
+  selected?: boolean;
+  image_url?: string;
+  preview_width?: number;
+  label?: string;
+};
+
+export type MediaPreferencesData = {
+  title?: string;
+  style_and_colour?: {
+    headerStyle?: string;
+    header_style_options?: Array<{ value: string; label: string; selected?: boolean }>;
+    bgColour?: string;
+    textColour?: string;
+    accentColour?: string;
+    accentTextcolour?: string;
+  };
+  brand_files?: {
+    base_url?: string;
+    headshot_jpg?: MediaBrandFile;
+    headshot_png?: MediaBrandFile;
+    logo_svg?: MediaBrandFile;
+    logo_svg_white?: MediaBrandFile;
+    logo_svg_black?: MediaBrandFile;
+    logo_png?: MediaBrandFile;
+    [key: string]: MediaBrandFile | string | undefined;
+  };
+  contact_card?: {
+    selected?: string;
+    field?: string;
+    layouts?: MediaLayoutOption[];
+    custom_graphic?: MediaLayoutOption & {
+      filename?: string;
+      url?: string;
+      upload_field?: string;
+      delete_field?: string;
+      radio_field?: string;
+    };
+  };
+  video_intro?: {
+    static?: MediaBrandFile;
+    animated?: { field?: string; label?: string; value?: string };
+  };
+  submit?: { method?: string; label?: string; suggested_endpoint?: string };
+};
+
+export function getPortalMediaPreferences() {
+  return postJson<PortalApiResponse<MediaPreferencesData>>("profile/media-preferences", {});
+}
+
+export async function savePortalMediaPreferences(formData: FormData) {
+  const user_id = getUserIdFromStorage();
+  if (user_id) formData.append("user_id", user_id);
+  const res = await fetch(`${BASE_URL}profile/save`, { method: "POST", body: formData });
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as PortalApiResponse;
+  } catch {
+    throw new Error(`Request failed with status ${res.status}`);
+  }
+}
+
+export type AmenityFilterOption = {
+  label: string;
+  value: string;
+  endpoint?: string;
+  payload?: { address?: string; complex?: string };
+};
+
+export type AmenityLookupRow = {
+  tourid: number | string;
+  download_url?: string;
+  edit_url?: string;
+  address?: string;
+  complex?: string;
+  date_shot?: string;
+  customer?: string;
+  photographer?: string;
+  pics?: number;
+  pans?: number;
+  video?: string;
+};
+
+export type AmenityLookupData = {
+  title?: string;
+  filters?: { address?: string | null; complex?: string | null };
+  columns?: string[];
+  rows?: AmenityLookupRow[];
+  pagination?: {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+  };
+  options?: {
+    addresses_endpoint?: string;
+    complexes_endpoint?: string;
+  };
+  empty_message?: string;
+};
+
+export function getAmenityComplexAddresses() {
+  return postJson<PortalApiResponse<AmenityFilterOption[]>>("amenities/complex-addresses", {});
+}
+
+export function getAmenityComplexNames() {
+  return postJson<PortalApiResponse<AmenityFilterOption[]>>("amenities/complex-names", {});
+}
+
+export function getAmenityLookup(params: {
+  address?: string;
+  complex?: string;
+  page?: number;
+  per_page?: number;
+}) {
+  return postJson<PortalApiResponse<AmenityLookupData>>("amenities/lookup", {
+    address: params.address || "",
+    complex: params.complex || "",
+    page: params.page || 1,
+    per_page: params.per_page || 30,
+  });
+}
+
+export async function getCityList(): Promise<{ status?: boolean; data?: Array<{ name?: string; prov_state?: string }> }> {
+  const res = await fetch(`${BASE_URL}citylist`);
+  if (!res.ok) throw new Error(`citylist failed (${res.status})`);
+  return res.json();
+}
+
+export async function getProvinceList(): Promise<{ status?: boolean; data?: string[] }> {
+  const res = await fetch(`${BASE_URL}provincelist`);
+  if (!res.ok) throw new Error(`provincelist failed (${res.status})`);
+  return res.json();
 }
 
 export function savePortalProfile(fields: Record<string, unknown>) {
@@ -1156,3 +1425,326 @@ export function getPortalListingMedia(tourid: string | number) {
   return postJson<PortalApiResponse>("listings/media", { tourid });
 }
 
+
+export function getDashboardScreen() {
+  return postJson<PortalApiResponse>("dashboard/screen", {});
+}
+
+export type ListingScreenTab = "overview" | "photos" | "print" | "virtual" | "stats" | string;
+
+export function getListingScreen(tourid: string | number, tab: ListingScreenTab = "overview") {
+  return postJson<PortalApiResponse>("listings/screen", { tourid, tab });
+}
+
+export function submitPhotographerRating(body: { tourid: string | number; rating: number; review?: string }) {
+  return postJson<PortalApiResponse>("listings/photographer-rating", { review: "", ...body });
+}
+
+export function getOrdersScreen(
+  params: { tab?: "all" | "completed" | "progress"; search?: string; per_page?: number; page?: number } = {},
+) {
+  return postJson<PortalApiResponse>("orders/screen", params);
+}
+
+export type OrderChangeType = "schedule" | "address" | "services" | "contact" | "notes" | "other";
+
+export function requestOrderChange(body: {
+  id: string | number;
+  change_type: OrderChangeType;
+  message: string;
+  preferred_date?: string;
+  preferred_time?: string;
+}) {
+  return postJson<PortalApiResponse>("orders/request-change", body);
+}
+
+export function cancelPortalOrder(id: string | number, reason: string) {
+  return postJson<PortalApiResponse>("orders/cancel", { id, reason });
+}
+
+export function getSettingsPreferences() {
+  return postJson<PortalApiResponse>("settings/preferences/details", {});
+}
+
+export function saveSettingsPreferences(selected: Record<string, unknown>) {
+  return postJson<PortalApiResponse>("settings/preferences/save", { selected });
+}
+
+export function getBrandingSettings() {
+  return postJson<PortalApiResponse>("settings/branding/details", {});
+}
+
+export function updateBrandingSettings(selected: Record<string, unknown>) {
+  return postJson<PortalApiResponse>("settings/branding/update", { selected });
+}
+
+export type BrandingAssetType =
+  | "headshot"
+  | "headshot_png"
+  | "logo_png"
+  | "logo_svg"
+  | "logo_svg_white"
+  | "logo_svg_black"
+  | "custom_graphic"
+  | "video_intro_static";
+
+export async function uploadBrandingAsset(asset_type: BrandingAssetType, file: File) {
+  const formData = new FormData();
+  const user_id = getUserIdFromStorage();
+  if (user_id) formData.append("user_id", user_id);
+  formData.append("asset_type", asset_type);
+  formData.append("file", file);
+  const res = await fetch(`${BASE_URL}settings/branding/upload`, { method: "POST", body: formData });
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as PortalApiResponse;
+  } catch {
+    throw new Error(`Request failed with status ${res.status}`);
+  }
+}
+
+export function getProofSendToPrintOptions(id: string | number) {
+  return postJson<PortalApiResponse>("proofs/send-to-print/options", { id });
+}
+
+export function sendProofToPrint(body: {
+  id: string | number;
+  stock_type: string | number;
+  quantity: number;
+  shipping: string;
+  address?: string;
+  approval_accepted: boolean;
+}) {
+  return postJson<PortalApiResponse>("proofs/send-to-print", body);
+}
+
+export type BillingAddressInput = {
+  address_id?: string;
+  label?: string;
+  name?: string;
+  unit?: string;
+  street?: string;
+  city?: string;
+  province?: string;
+  postal?: string;
+  country?: string;
+  phone?: string;
+  shipnotes?: string;
+  is_default?: boolean;
+};
+
+export function getBillingScreen() {
+  return postJson<PortalApiResponse>("billing/screen", {});
+}
+
+/** @deprecated Prefer getBillingScreen — kept as alias for older call sites */
+export function getBillingAddresses() {
+  return getBillingScreen();
+}
+
+export function saveBillingAddress(address: BillingAddressInput) {
+  return postJson<PortalApiResponse>("billing/addresses/save", address);
+}
+
+export function setDefaultBillingAddress(address_id: string) {
+  return postJson<PortalApiResponse>("billing/addresses/default", { address_id });
+}
+
+export function deleteBillingAddress(address_id: string) {
+  return postJson<PortalApiResponse>("billing/addresses/delete", { address_id });
+}
+
+export function createPaymentMethodCheckout(set_default = true) {
+  return postJson<PortalApiResponse<{ checkout_session_id?: string; checkout_url?: string }>>(
+    "billing/payment-methods/checkout",
+    { set_default },
+  );
+}
+
+export function getCoRealtorList() {
+  return postJson<PortalApiResponse & { list?: Array<{ name: string; username: string }> }>("get-realtor", {});
+}
+
+/* ── Booking engine APIs ─────────────────────────────────────────────── */
+
+export type BookingCity = { city: string };
+export type BookingTimePreference = { value: string; label: string; surcharge?: number };
+
+export type BookingService = {
+  id: string;
+  name: string;
+  code?: string;
+  ppu?: string;
+  printaddons?: string;
+  sqft_min?: string | null;
+  sqft_max?: string | null;
+  timetocomplete?: string | null;
+  timetocomplete_1000sf?: string | null;
+};
+
+export type BookingAddon = {
+  code: string;
+  name: string;
+  sqft_min?: string | null;
+  sqft_max?: string | null;
+  timetocomplete?: string | null;
+};
+
+export type BookingCategoryKey = "photography" | "drafting" | "videography" | "drone" | string;
+
+export type BookingCategory = {
+  services: BookingService[];
+  addons: BookingAddon[];
+};
+
+export type BookingPrintAddon = { id: string; name: string; code: string };
+export type BookingDiscount = { code: string };
+
+export type BookingBootstrapData = {
+  cities?: BookingCity[];
+  time_preferences?: BookingTimePreference[];
+  preferred_time?: string;
+  default_time?: string;
+  requested_date?: string;
+  time_format?: string;
+  time_step_minutes?: number;
+  next_api?: string;
+};
+
+export type BookingCatalogData = {
+  categories?: Record<BookingCategoryKey, BookingCategory>;
+  discounts?: BookingDiscount[];
+  cities?: BookingCity[];
+  printAddons?: BookingPrintAddon[];
+  firstService?: boolean;
+  customerPreferences?: Record<
+    string,
+    { note?: string; preferred_ids?: string[]; excluded_ids?: string[] }
+  >;
+};
+
+export type BookingRouteLeg = {
+  minutes?: number | null;
+  km?: number | null;
+  source?: string | null;
+};
+
+export type BookingAppointment = {
+  service_id: number;
+  category: string;
+  staff_id: number;
+  email?: string;
+  start: string;
+  duration_minutes: number;
+  route?: {
+    inbound?: BookingRouteLeg | null;
+    outbound?: BookingRouteLeg | null;
+    travel_minutes?: number | null;
+    origin_type?: string | null;
+  };
+  same_city_vicinity?: boolean;
+  idle_home_city?: boolean;
+  home_premium?: boolean;
+};
+
+export type BookingRecommendation = {
+  date: string;
+  start: string;
+  finish: string;
+  pattern: string;
+  score?: number;
+  minutes_from_requested?: number;
+  appointments: BookingAppointment[];
+  incremental_drive_minutes?: number;
+  team_rank?: number;
+  total_staff_count?: number;
+};
+
+export type BookingStaff = {
+  id: number;
+  email?: string;
+  name?: string;
+  rating?: number;
+  home_city?: string;
+  video_capable?: boolean;
+  skills?: Record<string, boolean>;
+};
+
+export type BookingServiceMeta = {
+  id: number;
+  category: string;
+  minutes?: number;
+  name?: string;
+};
+
+export type BookingRecommendationsData = {
+  recommendations?: BookingRecommendation[];
+  preference_status?: unknown[];
+  preferred_unavailable?: unknown[];
+  warnings?: string[];
+  services?: BookingServiceMeta[];
+  staff?: Record<string, BookingStaff>;
+  customer_preferences?: unknown;
+  critical?: boolean;
+  status?: boolean;
+  valid?: boolean;
+};
+
+export type BookingCommitData = {
+  committed?: boolean;
+  booking_id?: number;
+  appointment_ids?: number[];
+  message?: string;
+};
+
+export type BookingRequestBody = {
+  unit?: string;
+  street?: string;
+  city?: string;
+  size_sf?: number;
+  date?: string;
+  time?: string;
+  service_ids?: number[];
+  addons?: Record<string, string[]>;
+  discounts?: Record<string, unknown> | string[];
+  print?: Record<string, number | string>;
+  instructions?: Record<string, string> | string;
+  option?: {
+    date: string;
+    start: string;
+    finish: string;
+    pattern: string;
+    appointments: Array<{
+      service_id: number;
+      category: string;
+      staff_id: number;
+      email?: string;
+      start: string;
+      duration_minutes: number;
+    }>;
+  };
+  booking_received_via?: string;
+};
+
+export function getBookingBootstrap() {
+  return getJson<PortalApiResponse<BookingBootstrapData>>("booking/bootstrap");
+}
+
+export function getBookingCatalog(size_sf: number) {
+  return postJson<PortalApiResponse<BookingCatalogData>>("booking/catalog", { size_sf });
+}
+
+export function getBookingRecommendations(body: BookingRequestBody) {
+  return postJson<PortalApiResponse<BookingRecommendationsData>>("booking/recommendations", body);
+}
+
+export function validateBookingOption(body: BookingRequestBody) {
+  return postJson<PortalApiResponse<BookingRecommendationsData>>("booking/validate", body);
+}
+
+export function commitBooking(body: BookingRequestBody) {
+  return postJson<PortalApiResponse<BookingCommitData>>("booking/commit", {
+    booking_received_via: "Website",
+    ...body,
+  });
+}

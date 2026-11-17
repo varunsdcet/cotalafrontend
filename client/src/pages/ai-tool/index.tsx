@@ -12,7 +12,6 @@ import heroBg from "@/pages/images/new-bg-1.jpg";
 import {
   BrochureCard,
   EmailBannerCard,
-  FlyerCard,
   LandscapeCard,
   PinterestCard,
   PostcardBack,
@@ -28,13 +27,17 @@ import {
   keepSlotsForListing,
   listingCoverUrl,
   loadListingKitSource,
+  orderedListingPhotos,
 } from "./listing-photos";
 import ReelStudio from "./reel-studio";
 import SlideshowStudio from "./slideshow-studio";
 import DownloadCenter from "./download-center";
 import ListingVideo from "./listing-video";
+import StoryStudio from "./story-studio";
 import KitEditor, { type EditorGroup } from "./kit-editor";
+import { loadStoredDesign, purgeInvalidDesignAssets } from "./kit-design";
 import KitLoader from "./kit-loader";
+import { inferAgentGender } from "./slideshow";
 import { kitBtn } from "./kit-ui";
 
 const KIT_SLOTS_KEY = "cotala_ai_kit_slots_v4_";
@@ -50,7 +53,7 @@ const KIT_NAV = [
   { id: "landscape", label: "Landscape" },
   { id: "pinterest", label: "Pinterest" },
   { id: "postcard", label: "Postcard" },
-  { id: "flyers", label: "Flyers" },
+  { id: "brochure", label: "Brochure" },
   { id: "site", label: "Site" },
   { id: "copy", label: "AI copy" },
 ] as const;
@@ -62,9 +65,9 @@ type SlotMap = {
   postcard: string[];
   reel: string[];
   pinterest: string[];
-  flyer: string[];
   brochure: string[];
   email: string[];
+  flyer: string[];
 };
 
 function formatAddress(unit: unknown, address: string, city?: string) {
@@ -143,16 +146,17 @@ function floorplanUrls(tour: Record<string, unknown> | undefined): string[] {
 }
 
 function defaultSlots(photos: string[]): SlotMap {
+  const ordered = orderedListingPhotos(photos);
   return {
-    stories: keepSlotsForListing([], photos, 3),
-    square: keepSlotsForListing(photos.slice(3), photos, 3),
-    landscape: keepSlotsForListing([photos[0], photos[6] || photos[1]], photos, 2),
-    postcard: keepSlotsForListing([], photos, 4),
-    reel: photos.slice(0, 15),
-    pinterest: keepSlotsForListing([], photos, 3),
-    flyer: keepSlotsForListing(photos.slice(1), photos, 4),
-    brochure: keepSlotsForListing([], photos, 4),
-    email: keepSlotsForListing([], photos, 1),
+    stories: keepSlotsForListing(ordered.slice(0, 3), photos, 3),
+    square: keepSlotsForListing(ordered.slice(3, 6), photos, 3),
+    landscape: keepSlotsForListing([ordered[0], ordered[Math.min(6, ordered.length - 1)] || ordered[1]], photos, 2),
+    postcard: keepSlotsForListing(ordered.slice(0, 6), photos, 6),
+    reel: ordered.slice(0, 15),
+    pinterest: keepSlotsForListing(ordered.slice(1, 4), photos, 3),
+    brochure: keepSlotsForListing(ordered.slice(0, 4), photos, 4),
+    email: keepSlotsForListing([ordered[0]], photos, 1),
+    flyer: [],
   };
 }
 
@@ -166,12 +170,12 @@ function readSlots(tourId: string, photos: string[]): SlotMap {
       stories: keepSlotsForListing(parsed.stories, photos, 3),
       square: keepSlotsForListing(parsed.square, photos, 3),
       landscape: keepSlotsForListing(parsed.landscape, photos, 2),
-      postcard: keepSlotsForListing(parsed.postcard, photos, 4),
+      postcard: keepSlotsForListing(parsed.postcard, photos, 6),
       reel: keepSlotsForListing(parsed.reel, photos, Math.min(15, photos.length)),
       pinterest: keepSlotsForListing(parsed.pinterest, photos, 3),
-      flyer: keepSlotsForListing(parsed.flyer, photos, 4),
       brochure: keepSlotsForListing(parsed.brochure, photos, 4),
       email: keepSlotsForListing(parsed.email, photos, 1),
+      flyer: [],
     };
   } catch {
     return fallback;
@@ -227,7 +231,8 @@ export default function AiTool() {
     accent: "#B082F2",
   });
   const [slots, setSlots] = useState<SlotMap>(defaultSlots([]));
-  const [editor, setEditor] = useState<{ group: EditorGroup; index: number } | null>(null);
+  const [editor, setEditor] = useState<{ group: EditorGroup; index: number; page?: number } | null>(null);
+  const [designRevision, setDesignRevision] = useState(0);
   const [ribbons, setRibbons] = useState<Record<string, string>>({});
   const [zipping, setZipping] = useState(false);
   const [zipError, setZipError] = useState<string | null>(null);
@@ -274,6 +279,7 @@ export default function AiTool() {
 
         const mdx = mlxMap(tour);
         setPhotos(nextPhotos);
+        purgeInvalidDesignAssets(tourId, nextPhotos);
         setSlots(readSlots(tourId, nextPhotos));
 
         const unit = tour?.unit;
@@ -325,6 +331,17 @@ export default function AiTool() {
             tour?.description,
             mdxPick(mdx, ["Remarks", "Public Remarks", "PublicRemarks", "Internet Remarks"]),
           ]),
+          year: pickText([
+            tour?.built,
+            tour?.year,
+            mdxPick(mdx, ["Approx Year Built", "Year Built", "YearBuilt"]),
+          ]),
+          tourUrl: pickText([
+            tour?.fullpublicurl,
+            tour?.fullPublicUrl,
+            tour?.virtual_tour,
+            `https://www.cotala.com/tours/${tourId}/`,
+          ]),
         };
         setListing(nextListing);
         setCaption(socialCaption(nextListing, "long"));
@@ -350,9 +367,12 @@ export default function AiTool() {
         const agentRec = (profileData?.agent as Record<string, unknown> | undefined) || agent || {};
         const looksLikeUrl = (s: unknown) =>
           typeof s === "string" && (/^https?:\/\//i.test(s) || s.startsWith("data:"));
+        const agentName = String(contact?.name || agentRec.name || "").trim();
         setBrand({
-          name: String(contact?.name || agentRec.name || "").trim(),
+          name: agentName,
           phone: String(contact?.phone || agentRec.phone || "").trim(),
+          email: String(contact?.email || agentRec.email || "").trim(),
+          website: String(contact?.url || agentRec.url || agentRec.website || "").trim(),
           brokerage: String(agentRec.brokerage || tour?.brokerage || "").trim(),
           logo: looksLikeUrl(assets?.logo)
             ? String(assets?.logo)
@@ -369,6 +389,10 @@ export default function AiTool() {
           bg: String(agentRec.bgColour || agentRec.bgcolour || "#101214"),
           text: String(agentRec.textColour || agentRec.textcolour || "#ffffff"),
           accent: String(agentRec.accentColour || "#B082F2"),
+          gender: inferAgentGender(
+            agentName,
+            agentRec.gender ?? agentRec.sex ?? contact?.gender ?? contact?.sex ?? profileData?.gender,
+          ),
         });
       } catch (error) {
         console.error("Failed to load marketing kit", error);
@@ -430,6 +454,17 @@ export default function AiTool() {
       setZipping(false);
     }
   };
+
+  useEffect(() => {
+    if (!tourId) return;
+    const hash = window.location.hash.replace(/^#/, "").trim();
+    if (!hash) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(hash)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setActiveNav(hash);
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [tourId]);
 
   const goSection = (id: string) => {
     setActiveNav(id);
@@ -493,7 +528,7 @@ export default function AiTool() {
         <div className="service-package">
           <div className="container mx-auto mb-4 pt-6 px-4">
             <p className="text-white/70 mb-4">
-              Select a listing. Photos, downloads, social posts, reels, postcards, and flyers all use this tour’s real Cotala photos.
+              Select a listing. Photos, downloads, social posts, reels, and postcards all use this tour’s real Cotala photos.
             </p>
             <Input
               type="text"
@@ -617,7 +652,7 @@ export default function AiTool() {
             >
               <div>
                 <h3 className="text-xl font-semibold mb-1">Profile & property info</h3>
-                <p className="text-white/45 text-sm mb-5">Edits update every story, postcard, flyer, and reel on this page.</p>
+                <p className="text-white/45 text-sm mb-5">Edits update every story, postcard, and reel on this page.</p>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {(
                     [
@@ -627,6 +662,7 @@ export default function AiTool() {
                       ["sqft", "Square ft"],
                       ["lot", "Lot size"],
                       ["mls", "MLS#"],
+                      ["year", "Year built"],
                     ] as Array<[keyof KitListing, string]>
                   ).map(([key, label]) => (
                     <label key={key} className="block">
@@ -693,6 +729,9 @@ export default function AiTool() {
               youtubeUrl={youtubeUrl}
               poster={photos[0]}
               address={listing.address}
+              photos={photos}
+              listing={listing}
+              brand={brand}
             />
 
             {photos.length === 0 ? (
@@ -716,6 +755,7 @@ export default function AiTool() {
                   listing={listing}
                   brand={brand}
                   fileName={`${tourId}_slideshow`}
+                  onBrandGender={(gender) => setBrand((prev) => ({ ...prev, gender }))}
                 />
 
                 <section id="stories" className="scroll-mt-44">
@@ -725,17 +765,24 @@ export default function AiTool() {
                   <div className="flex flex-wrap gap-5">
                     {slots.stories.map((photo, i) => (
                       <StoryCard
-                        key={`story-${i}`}
+                        key={`story-${i}-${designRevision}`}
                         title={`Story #${i + 1}`}
                         photo={photo}
                         listing={listing}
                         brand={brand}
+                        tourId={tourId}
+                        designGroup="stories"
+                        designIndex={i}
+                        designRevision={designRevision}
+                        headline={ribbons[`stories-${i}`] || (i === 1 ? "OPEN HOUSE" : "JUST LISTED")}
                         ribbon={ribbons[`stories-${i}`] || (i === 1 ? "OPEN HOUSE" : "JUST LISTED")}
                         downloadName={`${tourId}_story_${i + 1}.jpg`}
+                        edited={Boolean(tourId && loadStoredDesign(tourId, "stories", i))}
                         onEdit={() => setEditor({ group: "stories", index: i })}
                       />
                     ))}
                   </div>
+                  <StoryStudio photos={photos} listing={listing} brand={brand} tourId={tourId} />
                 </section>
 
                 <section id="square" className="scroll-mt-44">
@@ -745,12 +792,18 @@ export default function AiTool() {
                   <div className="flex flex-wrap gap-5">
                     {slots.square.map((photo, i) => (
                       <SquareCard
-                        key={`sq-${i}`}
+                        key={`sq-${i}-${designRevision}`}
                         title={`Square #${i + 1}`}
                         photo={photo}
                         listing={listing}
                         brand={brand}
+                        tourId={tourId}
+                        designGroup="square"
+                        designIndex={i}
+                        designRevision={designRevision}
+                        ribbon={ribbons[`square-${i}`] || "JUST LISTED"}
                         downloadName={`${tourId}_square_${i + 1}.jpg`}
+                        edited={Boolean(tourId && loadStoredDesign(tourId, "square", i))}
                         onEdit={() => setEditor({ group: "square", index: i })}
                       />
                     ))}
@@ -764,13 +817,19 @@ export default function AiTool() {
                   <div className="flex flex-wrap gap-5">
                     {slots.landscape.map((photo, i) => (
                       <LandscapeCard
-                        key={`ls-${i}`}
+                        key={`ls-${i}-${designRevision}`}
                         title={`Landscape #${i + 1}`}
                         photo={photo}
                         extra={i === 0 ? [slots.landscape[1] || photos[1] || ""] : []}
                         listing={listing}
                         brand={brand}
+                        tourId={tourId}
+                        designGroup="landscape"
+                        designIndex={i}
+                        designRevision={designRevision}
+                        ribbon={ribbons[`landscape-${i}`] || "JUST LISTED"}
                         downloadName={`${tourId}_landscape_${i + 1}.jpg`}
+                        edited={Boolean(tourId && loadStoredDesign(tourId, "landscape", i))}
                         onEdit={() => setEditor({ group: "landscape", index: i })}
                       />
                     ))}
@@ -799,18 +858,66 @@ export default function AiTool() {
                 </section>
 
                 <section id="postcard" className="scroll-mt-44">
-                  <h3 className="text-xl font-semibold mb-2">Postcard</h3>
-                  <p className="text-white/55 text-sm mb-4">Edit opens the designer — swap photos and listing text there.</p>
+                  <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
+                    <div>
+                      <h3 className="text-xl font-semibold mb-1">Postcard</h3>
+                      <p className="text-white/55 text-sm mb-0">
+                        Print front and back — same Just Listed / Just Sold template as Design Job. Click a side to edit.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {(["JUST LISTED", "JUST SOLD"] as const).map((status) => {
+                        const active = (ribbons["postcard-0"] || "JUST LISTED") === status;
+                        return (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => setRibbons((prev) => ({ ...prev, "postcard-0": status }))}
+                            className="text-xs px-3 py-1.5 rounded-full border"
+                            style={{
+                              borderColor: active ? "#B082F2" : "rgba(255,255,255,0.18)",
+                              color: active ? "#fff" : "rgba(255,255,255,0.6)",
+                              background: active ? "rgba(176,130,242,0.15)" : "transparent",
+                            }}
+                          >
+                            {status === "JUST LISTED" ? "Just listed" : "Just sold"}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        className={kitBtn}
+                        onClick={() => setEditor({ group: "postcard", index: 0, page: 0 })}
+                      >
+                        Start designing
+                      </button>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-6">
                     <PostcardFront
-                      title="Postcard · Front"
+                      title="Front"
+                      ribbon={ribbons["postcard-0"] || "JUST LISTED"}
                       photos={slots.postcard}
                       listing={listing}
                       brand={brand}
                       downloadName={`${tourId}_postcard_front.jpg`}
-                      onEditSlot={(slot) => setEditor({ group: "postcard", index: slot })}
+                      onEdit={() => setEditor({ group: "postcard", index: 0, page: 0 })}
                     />
-                    <PostcardBack title="Postcard · Back" listing={listing} brand={brand} downloadName={`${tourId}_postcard_back.jpg`} />
+                    <PostcardBack
+                      title="Back"
+                      ribbon={ribbons["postcard-0"] || "JUST LISTED"}
+                      photos={slots.postcard}
+                      listing={listing}
+                      brand={brand}
+                      downloadName={`${tourId}_postcard_back.jpg`}
+                      onEdit={() => setEditor({ group: "postcard", index: 0, page: 1 })}
+                    />
+                  </div>
+                </section>
+
+                <section id="brochure" className="scroll-mt-44">
+                  <h3 className="text-xl font-semibold mb-2">Brochure</h3>
+                  <div className="flex flex-wrap gap-6">
                     <BrochureCard
                       title="Brochure · bi-fold"
                       photos={slots.brochure}
@@ -818,32 +925,6 @@ export default function AiTool() {
                       brand={brand}
                       downloadName={`${tourId}_brochure.jpg`}
                       onEdit={() => setEditor({ group: "brochure", index: 0 })}
-                    />
-                  </div>
-                </section>
-
-                <section id="flyers" className="scroll-mt-44">
-                  <h3 className="text-xl font-semibold mb-4">Flyers</h3>
-                  <div className="flex flex-wrap gap-6">
-                    <FlyerCard
-                      title="Flyer · Just listed"
-                      photo={slots.flyer[0] || photos[0]}
-                      extra={slots.flyer.slice(1, 4)}
-                      listing={listing}
-                      brand={brand}
-                      ribbon={ribbons["flyer-0"] || "JUST LISTED"}
-                      downloadName={`${tourId}_flyer_listed.jpg`}
-                      onEdit={() => setEditor({ group: "flyer", index: 0 })}
-                    />
-                    <FlyerCard
-                      title="Flyer · Open house"
-                      photo={slots.flyer[1] || photos[1] || photos[0]}
-                      extra={slots.flyer.slice(2, 5)}
-                      listing={listing}
-                      brand={brand}
-                      ribbon={ribbons["flyer-1"] || "OPEN HOUSE"}
-                      downloadName={`${tourId}_flyer_openhouse.jpg`}
-                      onEdit={() => setEditor({ group: "flyer", index: 1 })}
                     />
                   </div>
                 </section>
@@ -980,6 +1061,7 @@ export default function AiTool() {
           tourId={tourId}
           group={editor.group}
           index={editor.index}
+          initialPage={editor.page}
           photos={photos}
           slots={slots}
           listing={listing}
@@ -991,7 +1073,10 @@ export default function AiTool() {
           onRibbon={(value) =>
             setRibbons((prev) => ({ ...prev, [`${editor.group}-${editor.index}`]: value }))
           }
-          onClose={() => setEditor(null)}
+          onClose={() => {
+            setEditor(null);
+            setDesignRevision((r) => r + 1);
+          }}
         />
       ) : null}
 

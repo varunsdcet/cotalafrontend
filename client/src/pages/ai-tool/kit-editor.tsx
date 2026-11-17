@@ -8,9 +8,11 @@ import {
   ARTBOARD,
   FONT_FAMILIES,
   applyOps,
+  applyPostcardHeadline,
   createKitDesign,
   listingTokens,
   loadStoredDesign,
+  postcardPhotoSlot,
   saveStoredDesign,
   scaleDesign,
   type DesignDoc,
@@ -27,6 +29,7 @@ type Props = {
   tourId: string;
   group: EditorGroup;
   index: number;
+  initialPage?: number;
   photos: string[];
   slots: SlotMap;
   listing: KitListing;
@@ -68,10 +71,16 @@ function variantCount(group: EditorGroup, slots: SlotMap) {
   return Math.max(1, slots[group]?.length || 1);
 }
 
+function designPhotos(group: EditorGroup, slots: SlotMap, photos: string[]) {
+  const fromSlots = (slots[group] || []).filter(Boolean);
+  return fromSlots.length ? fromSlots : photos;
+}
+
 export default function KitEditor({
   tourId,
   group,
   index,
+  initialPage = 0,
   photos,
   slots,
   listing,
@@ -84,12 +93,14 @@ export default function KitEditor({
   onClose,
 }: Props) {
   const headline = ribbon || (index === 1 && group === "stories" ? "OPEN HOUSE" : "JUST LISTED");
-  const [design, setDesign] = useState<DesignDoc>(() => loadStoredDesign(tourId, group, index) || createKitDesign(group, slots[group] || photos, listing, brand, headline));
+  const [design, setDesign] = useState<DesignDoc>(
+    () => loadStoredDesign(tourId, group, index) || createKitDesign(group, designPhotos(group, slots, photos), listing, brand, headline),
+  );
   const [history, setHistory] = useState<DesignDoc[]>([]);
   const [future, setFuture] = useState<DesignDoc[]>([]);
   const [versions, setVersions] = useState<{ label: string; at: string }[]>([{ label: "Opened", at: new Date().toISOString() }]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [pageIndex, setPageIndex] = useState(0);
+  const [pageIndex, setPageIndex] = useState(initialPage);
   const [zoom, setZoom] = useState(0.28);
   const [tab, setTab] = useState<"photos" | "data" | "assistant">("photos");
   const [saving, setSaving] = useState("Saved");
@@ -99,9 +110,9 @@ export default function KitEditor({
   const fabricRef = useRef<FabricCanvas | null>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const page = design.pages[pageIndex] ?? design.pages[0];
-  const selected = page.objects.find((o) => o.id === selectedId) || null;
+  const selected = page?.objects.find((o) => o.id === selectedId) || null;
   const tokens = useMemo(() => listingTokens(listing, brand, headline), [listing, brand, headline]);
-  const used = new Set(page.objects.filter((o) => o.type === "image" && o.assetId).map((o) => (o.type === "image" ? o.assetId : "")));
+  const used = new Set((page?.objects || []).filter((o) => o.type === "image" && o.assetId).map((o) => (o.type === "image" ? o.assetId : "")));
   const variants = useMemo(() => Array.from({ length: variantCount(group, slots) }, (_, i) => `${VARIANT_PREFIX[group]} #${i + 1}`), [group, slots]);
 
   const fitZoom = useCallback(() => {
@@ -119,13 +130,23 @@ export default function KitEditor({
 
   useEffect(() => {
     const stored = loadStoredDesign(tourId, group, index);
-    setDesign(stored || createKitDesign(group, slots[group] || photos, listing, brand, headline));
+    const next = stored || createKitDesign(group, designPhotos(group, slots, photos), listing, brand, headline);
+    setDesign(group === "postcard" ? applyPostcardHeadline(next, headline) : next);
     setHistory([]);
     setFuture([]);
     setSelectedId(null);
-    setPageIndex(0);
+    setPageIndex(Math.max(0, Math.min(initialPage, next.pages.length - 1)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tourId, group, index]);
+  }, [tourId, group, index, initialPage]);
+
+  useEffect(() => {
+    if (group !== "postcard") return;
+    setDesign((d) => {
+      const next = applyPostcardHeadline(d, headline);
+      saveStoredDesign(tourId, group, index, next);
+      return next;
+    });
+  }, [headline, group, tourId, index]);
 
   const dispatch = useCallback(
     (label: string, ops: Op[]) => {
@@ -145,7 +166,12 @@ export default function KitEditor({
         if (tokenOp.tokenKey === "headline" && onRibbon) onRibbon(tokenOp.value);
       }
       const swap = ops.find((o) => o.op === "swap_photo");
-      if (swap && swap.op === "swap_photo") onSwap(group, index, swap.assetId);
+      if (swap && swap.op === "swap_photo") {
+        const postcardSlot = postcardPhotoSlot(swap.frameId);
+        const fromFrame = /^hero_(\d+)$/.exec(swap.frameId);
+        const slot = postcardSlot ?? (fromFrame ? Number(fromFrame[1]) - 1 : index);
+        onSwap(group, Number.isFinite(slot) ? slot : index, swap.assetId);
+      }
       const next = applyOps(design, ops);
       setHistory((h) => [...h.slice(-49), design]);
       setFuture([]);
@@ -198,7 +224,7 @@ export default function KitEditor({
     const bin = atob(data.split(",")[1] || "");
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    saveAs(new Blob([bytes], { type: "image/jpeg" }), `${tourId}_${group}_${index + 1}.jpg`);
+    saveAs(new Blob([bytes], { type: "image/jpeg" }), `${tourId}_${group}_${group === "postcard" ? (pageIndex === 0 ? "front" : "back") : index + 1}.jpg`);
   };
 
   const adaptAll = () => {
@@ -232,6 +258,13 @@ export default function KitEditor({
       setLog((l) => ["Assistant: set badge to Open House", ...l]);
       return;
     }
+    if (q.includes("just sold")) {
+      const badge = page.objects.find((o) => o.type === "badge");
+      if (badge) dispatch("Assistant: set Just Sold", [{ op: "set_style", objId: badge.id, props: { badge: "just_sold" } }]);
+      onRibbon?.("JUST SOLD");
+      setLog((l) => ["Assistant: set Just Sold", ...l]);
+      return;
+    }
     if (q.includes("just listed")) {
       const badge = page.objects.find((o) => o.type === "badge");
       if (badge) dispatch("Assistant: set Just Listed", [{ op: "set_style", objId: badge.id, props: { badge: "just_listed" } }]);
@@ -254,8 +287,9 @@ export default function KitEditor({
     <div className="fixed inset-0 z-[120] flex flex-col bg-[#0a0a0c] text-white">
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-white/10 bg-[#111114]">
         <button type="button" className="text-sm font-semibold text-[#B082F2]" onClick={onClose}>
-          ← Back to kit
+          {group === "postcard" ? "← Back" : "← Back to kit"}
         </button>
+        {variants.length > 1 ? (
         <div className="flex gap-1 p-1 rounded-lg bg-white/5 border border-white/10 overflow-x-auto">
           {variants.map((label, i) => (
             <button
@@ -268,6 +302,9 @@ export default function KitEditor({
             </button>
           ))}
         </div>
+        ) : (
+          <p className="text-sm font-semibold mb-0">{group === "postcard" ? "Postcard · Front & back" : VARIANT_PREFIX[group]}</p>
+        )}
         <button type="button" className="text-sm text-white/60" disabled={!history.length} onClick={undo}>
           Undo
         </button>
@@ -320,7 +357,7 @@ export default function KitEditor({
             <span className="ml-4 flex gap-1">
               {design.pages.map((p, i) => (
                 <button key={p.id} type="button" className={`px-2 py-0.5 rounded ${i === pageIndex ? "bg-white/15 text-white" : ""}`} onClick={() => setPageIndex(i)}>
-                  Page {i + 1}
+                  {group === "postcard" ? (i === 0 ? "Front" : "Back") : `Page ${i + 1}`}
                 </button>
               ))}
               {design.pages.length < design.limits.maxPages ? (
@@ -363,7 +400,7 @@ export default function KitEditor({
           ))}
         </aside>
 
-        <section ref={workspaceRef} className="relative flex-1 flex items-center justify-center overflow-auto" style={{ background: "#16161a" }} onPointerDown={() => setSelectedId(null)}>
+        <section ref={workspaceRef} className="relative flex-1 flex items-center justify-center overflow-auto" style={{ background: group === "postcard" ? "#cfc8bb" : "#16161a" }} onPointerDown={() => setSelectedId(null)}>
           <FabricCanvasView
             design={design}
             pageIndex={pageIndex}

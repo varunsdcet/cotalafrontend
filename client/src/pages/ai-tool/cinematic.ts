@@ -1,4 +1,4 @@
-/** AutoReel-style camera: eased dolly / pan / orbit on still photos — not a cut slideshow. */
+/** AutoReel-style camera: parallax Ken Burns + premium dissolves. */
 
 import { drawGradedStill } from "./cinematic-gl";
 
@@ -52,41 +52,49 @@ export function easeInOutQuart(t: number) {
   return x < 0.5 ? 8 * x * x * x * x : 1 - Math.pow(-2 * x + 2, 4) / 2;
 }
 
+/** Hold → accelerate → ease — feels like a real operator move. */
+export function easeCamera(t: number) {
+  const x = clamp(t, 0, 1);
+  const shaped = x * x * (3 - 2 * x);
+  return easeInOutQuart(shaped);
+}
+
 const MOVES: CameraMove[] = [
   "push-in",
   "pan-right",
   "pull-out",
-  "pan-left",
+  "orbit-left",
   "tilt-up",
+  "pan-left",
   "drift",
-  "push-in",
   "orbit-right",
+  "push-in",
 ];
 
 export function pickMove(index: number): CameraMove {
   return MOVES[index % MOVES.length];
 }
 
-/** Slow operator moves — AutoReel finishing, not a punchy slideshow. */
+/** Confident dolly / pan — client WeTransfer ref energy. */
 export function cameraAt(move: CameraMove, t: number): CameraState {
-  const held = easeInOutQuart(clamp((t - 0.08) / 0.92, 0, 1));
+  const held = easeCamera(clamp((t - 0.02) / 0.98, 0, 1));
   switch (move) {
     case "push-in":
-      return { zoom: lerp(1.08, 1.16, held), panX: lerp(0.15, 0.45, held), panY: lerp(0.2, -0.9, held), rot: 0 };
+      return { zoom: lerp(1.0, 1.14, held), panX: lerp(0.04, 0.45, held), panY: lerp(0.3, -0.7, held), rot: 0 };
     case "pull-out":
-      return { zoom: lerp(1.17, 1.09, held), panX: lerp(-0.2, 0.15, held), panY: lerp(-0.7, 0.15, held), rot: 0 };
+      return { zoom: lerp(1.16, 1.02, held), panX: lerp(-0.3, 0.18, held), panY: lerp(-0.6, 0.22, held), rot: 0 };
     case "pan-left":
-      return { zoom: 1.14, panX: lerp(1.8, -1.8, held), panY: lerp(0.2, -0.25, held), rot: 0 };
+      return { zoom: 1.1, panX: lerp(1.8, -1.8, held), panY: lerp(0.25, -0.28, held), rot: 0 };
     case "pan-right":
-      return { zoom: 1.14, panX: lerp(-1.8, 1.8, held), panY: lerp(-0.2, 0.25, held), rot: 0 };
+      return { zoom: 1.1, panX: lerp(-1.8, 1.8, held), panY: lerp(-0.25, 0.28, held), rot: 0 };
     case "tilt-up":
-      return { zoom: 1.13, panX: lerp(-0.25, 0.25, held), panY: lerp(1.6, -1.6, held), rot: 0 };
+      return { zoom: 1.1, panX: lerp(-0.22, 0.22, held), panY: lerp(1.6, -1.6, held), rot: 0 };
     case "orbit-left":
-      return { zoom: lerp(1.12, 1.16, held), panX: lerp(1.5, -1.5, held), panY: lerp(0.4, -0.5, held), rot: 0 };
+      return { zoom: lerp(1.04, 1.12, held), panX: lerp(1.5, -1.5, held), panY: lerp(0.4, -0.45, held), rot: 0 };
     case "orbit-right":
-      return { zoom: lerp(1.12, 1.16, held), panX: lerp(-1.5, 1.5, held), panY: lerp(-0.35, 0.45, held), rot: 0 };
+      return { zoom: lerp(1.04, 1.12, held), panX: lerp(-1.5, 1.5, held), panY: lerp(-0.35, 0.4, held), rot: 0 };
     default:
-      return { zoom: lerp(1.1, 1.14, held), panX: lerp(-0.5, 0.5, held), panY: lerp(0.25, -0.35, held), rot: 0 };
+      return { zoom: lerp(1.03, 1.1, held), panX: lerp(-0.6, 0.6, held), panY: lerp(0.28, -0.35, held), rot: 0 };
   }
 }
 
@@ -122,28 +130,35 @@ export function drawCinematicStill(
   h: number,
   progress: number,
   move: CameraMove,
+  time = 0,
 ) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   const cam = cameraAt(move, progress);
-  if (drawGradedStill(ctx, img, w, h, cam, 1)) return;
+  if (drawGradedStill(ctx, img, w, h, cam, 1, time)) return;
+  /* Canvas fallback with faux parallax */
   ctx.save();
+  ctx.filter = "blur(4px) brightness(0.97)";
+  coverDraw(ctx, img, 0, 0, w, h, cam.zoom * 1.08, cam.panX * 0.4, cam.panY * 0.4);
+  ctx.filter = "none";
   coverDraw(ctx, img, 0, 0, w, h, cam.zoom, cam.panX, cam.panY);
   ctx.restore();
 }
 
-export function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number, amount = 0.22) {
-  const g = ctx.createRadialGradient(w / 2, h * 0.46, Math.min(w, h) * 0.28, w / 2, h * 0.5, Math.max(w, h) * 0.78);
+export function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number, amount = 0.14) {
+  const g = ctx.createRadialGradient(w / 2, h * 0.42, Math.min(w, h) * 0.36, w / 2, h * 0.5, Math.max(w, h) * 0.85);
   g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, `rgba(6,8,10,${amount})`);
+  g.addColorStop(0.7, "rgba(0,0,0,0)");
+  g.addColorStop(1, `rgba(4,6,8,${amount})`);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
 }
 
-export function drawDuskWash(ctx: CanvasRenderingContext2D, w: number, h: number, strength = 0.38) {
-  const g = ctx.createLinearGradient(0, h * 0.48, 0, h);
-  g.addColorStop(0, "rgba(16,18,20,0)");
-  g.addColorStop(1, `rgba(16,18,20,${strength})`);
+export function drawDuskWash(ctx: CanvasRenderingContext2D, w: number, h: number, strength = 0.16) {
+  const g = ctx.createLinearGradient(0, h * 0.62, 0, h);
+  g.addColorStop(0, "rgba(8,10,12,0)");
+  g.addColorStop(0.5, `rgba(8,10,12,${strength * 0.4})`);
+  g.addColorStop(1, `rgba(8,10,12,${strength})`);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
 }
@@ -183,4 +198,5 @@ export function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: 
   return lines;
 }
 
-export const XFADE = 0.82;
+/** Soft dissolve length — snappy like premium listing reels. */
+export const XFADE = 0.42;

@@ -45,14 +45,30 @@ export const MUSIC_LIBRARY: MusicTrack[] = [
     title: "Luxe",
     mood: "Elegant · premium",
     bpm: 76,
-    recipe: { notes: [329.63, 415.3, 493.88, 659.25], bpm: 76, step: 2, decay: 2.4, bass: 82.41, lowpass: 2600, gain: 0.95 },
+    recipe: {
+      notes: [196, 246.94, 293.66, 369.99, 293.66, 246.94, 220, 293.66],
+      bpm: 76,
+      step: 2,
+      decay: 1.8,
+      bass: 65.41,
+      lowpass: 2200,
+      gain: 0.88,
+    },
   },
   {
     id: "cinematic-dusk",
     title: "Dusk",
     mood: "Cinematic · calm",
-    bpm: 60,
-    recipe: { notes: [196, 246.94, 293.66], bpm: 60, step: 4, decay: 1.1, bass: null, lowpass: 1400, gain: 0.9 },
+    bpm: 68,
+    recipe: {
+      notes: [174.61, 220, 261.63, 329.63, 261.63, 220],
+      bpm: 68,
+      step: 3,
+      decay: 1.2,
+      bass: 55,
+      lowpass: 1600,
+      gain: 0.85,
+    },
   },
   {
     id: "clean-minimal",
@@ -63,7 +79,7 @@ export const MUSIC_LIBRARY: MusicTrack[] = [
   },
 ];
 
-export const DEFAULT_TRACK_ID = "uplift-major";
+export const DEFAULT_TRACK_ID = "luxe-slow";
 
 export function findTrack(id: string | null | undefined): MusicTrack | null {
   if (!id) return null;
@@ -148,44 +164,84 @@ export function libraryTrackUrl(trackId: string): string {
   return url;
 }
 
+async function decodeTrack(actx: AudioContext, url: string): Promise<AudioBuffer | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.arrayBuffer();
+    return await actx.decodeAudioData(data.slice(0));
+  } catch {
+    return null;
+  }
+}
+
 export async function mixAudioTracks(
   videoStream: MediaStream,
-  tracks: Array<{ url: string; volume: number; loop?: boolean }>,
-): Promise<{ stream: MediaStream; stop: () => void }> {
+  tracks: Array<{ url: string; volume: number; loop?: boolean; delay?: number }>,
+): Promise<{ stream: MediaStream; stop: () => void; armDelayed: () => void }> {
   if (!tracks.length) {
     return {
       stream: videoStream,
       stop: () => videoStream.getTracks().forEach((t) => t.stop()),
+      armDelayed: () => undefined,
     };
   }
   const actx = new AudioContext();
   if (actx.state === "suspended") await actx.resume();
   const dest = actx.createMediaStreamDestination();
-  const els: HTMLAudioElement[] = [];
+  const keep = actx.createOscillator();
+  const keepGain = actx.createGain();
+  keepGain.gain.value = 0.0001;
+  keep.connect(keepGain);
+  keepGain.connect(dest);
+  keep.start();
+
+  const prepared: Array<{ buffer: AudioBuffer; volume: number; loop: boolean; delay: number }> = [];
   for (const track of tracks) {
-    const el = new Audio(track.url);
-    el.loop = Boolean(track.loop);
-    el.crossOrigin = "anonymous";
-    el.volume = 1;
-    const src = actx.createMediaElementSource(el);
-    const gain = actx.createGain();
-    gain.gain.value = track.volume;
-    src.connect(gain);
-    gain.connect(dest);
-    await el.play();
-    els.push(el);
+    if (!track.url) continue;
+    const buffer = await decodeTrack(actx, track.url);
+    if (!buffer) continue;
+    prepared.push({
+      buffer,
+      volume: track.volume,
+      loop: Boolean(track.loop),
+      delay: Math.max(0, track.delay || 0),
+    });
   }
+
+  const nodes: Array<AudioBufferSourceNode | OscillatorNode> = [keep];
+  let armed = false;
   const stream = new MediaStream([...videoStream.getVideoTracks(), ...dest.stream.getAudioTracks()]);
   return {
     stream,
     stop: () => {
-      for (const el of els) {
-        el.pause();
-        el.src = "";
+      for (const node of nodes) {
+        try {
+          node.stop();
+        } catch {
+          /* already stopped */
+        }
       }
       videoStream.getTracks().forEach((t) => t.stop());
       dest.stream.getTracks().forEach((t) => t.stop());
       void actx.close();
+    },
+    /** Start the mix when recording begins so voice delay lines up with the white intro. */
+    armDelayed: () => {
+      if (armed) return;
+      armed = true;
+      const t0 = actx.currentTime;
+      for (const item of prepared) {
+        const src = actx.createBufferSource();
+        src.buffer = item.buffer;
+        src.loop = item.loop;
+        const gain = actx.createGain();
+        gain.gain.value = item.volume;
+        src.connect(gain);
+        gain.connect(dest);
+        src.start(t0 + item.delay);
+        nodes.push(src);
+      }
     },
   };
 }

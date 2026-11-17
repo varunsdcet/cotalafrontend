@@ -1,4 +1,4 @@
-/** GPU photo compositor — filmic grade + cover Ken Burns. Falls back silently. */
+/** GPU photo compositor — parallax depth + filmic grade (AutoReel-style stills). */
 
 type Cam = { zoom: number; panX: number; panY: number };
 
@@ -20,30 +20,58 @@ uniform vec2 uImage;
 uniform float uZoom;
 uniform vec2 uPan;
 uniform float uGrade;
+uniform float uTime;
 
-void main() {
+vec2 coverUv(vec2 uv, float zoom, vec2 pan) {
   float canvasA = uCanvas.x / max(uCanvas.y, 1.0);
   float imageA = uImage.x / max(uImage.y, 1.0);
   vec2 scale = vec2(1.0);
   if (imageA > canvasA) scale.x = canvasA / imageA;
   else scale.y = imageA / canvasA;
-  vec2 uv = (vUv - 0.5) * scale / max(uZoom, 0.01) + 0.5;
-  uv += uPan * 0.01;
-  uv.y = 1.0 - uv.y;
-  vec3 col = texture(uTex, uv).rgb;
+  vec2 p = (uv - 0.5) * scale / max(zoom, 0.01) + 0.5;
+  p += pan * 0.01;
+  p.y = 1.0 - p.y;
+  return p;
+}
+
+vec3 sampleCover(vec2 uv, float zoom, vec2 pan) {
+  vec2 p = coverUv(uv, zoom, pan);
+  /* Soft edge clamp — avoid hard UV wrap artifacts */
+  if (p.x < -0.02 || p.x > 1.02 || p.y < -0.02 || p.y > 1.02) return vec3(0.04);
+  return texture(uTex, clamp(p, 0.0, 1.0)).rgb;
+}
+
+/* Lightweight 5-tap blur for depth layer */
+vec3 blurCover(vec2 uv, float zoom, vec2 pan) {
+  vec2 px = vec2(1.8 / uCanvas.x, 1.8 / uCanvas.y);
+  vec3 c = sampleCover(uv, zoom, pan) * 0.36;
+  c += sampleCover(uv + vec2(px.x, 0.0), zoom, pan) * 0.16;
+  c += sampleCover(uv - vec2(px.x, 0.0), zoom, pan) * 0.16;
+  c += sampleCover(uv + vec2(0.0, px.y), zoom, pan) * 0.16;
+  c += sampleCover(uv - vec2(0.0, px.y), zoom, pan) * 0.16;
+  return c;
+}
+
+void main() {
+  vec3 bg = blurCover(vUv, uZoom * 1.08, uPan * 0.4);
+  vec3 fg = sampleCover(vUv, uZoom, uPan);
+  float edge = smoothstep(0.82, 0.22, distance(vUv, vec2(0.5, 0.46)));
+  vec3 col = mix(bg, fg, 0.94 + edge * 0.06);
 
   float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
-  col = mix(vec3(luma), col, 1.06);
-  col = (col - 0.5) * 1.14 + 0.48;
-  col.r += 0.028 * luma * uGrade;
-  col.b += 0.034 * (1.0 - luma) * uGrade;
+  col = mix(vec3(luma), col, 1.02);
+  col = (col - 0.5) * 1.04 + 0.52;
+  col.r += 0.01 * luma * uGrade;
   col = max(col, vec3(0.0));
-  col = col * (1.02 + luma * 0.08);
-  col = col / (col + vec3(0.72)) * 1.18;
+  col += (col - vec3(luma)) * 0.06;
+  col *= 1.04;
 
-  float d = distance(vUv, vec2(0.5, 0.46));
-  float vig = smoothstep(0.28, 0.98, d);
-  col *= 1.0 - vig * 0.38 * uGrade;
+  float d = distance(vUv, vec2(0.5, 0.42));
+  float vig = smoothstep(0.62, 1.15, d);
+  col *= 1.0 - vig * 0.08 * uGrade;
+
+  float grain = fract(sin(dot(vUv * uCanvas + uTime * 17.0, vec2(12.9898, 78.233))) * 43758.5453);
+  col += (grain - 0.5) * 0.006 * uGrade;
 
   outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -109,6 +137,7 @@ function init(): GLState | null {
         uZoom: gl.getUniformLocation(prog, "uZoom"),
         uPan: gl.getUniformLocation(prog, "uPan"),
         uGrade: gl.getUniformLocation(prog, "uGrade"),
+        uTime: gl.getUniformLocation(prog, "uTime"),
       },
       textures: new WeakMap(),
     };
@@ -143,6 +172,7 @@ export function drawGradedStill(
   h: number,
   cam: Cam,
   grade = 1,
+  time = 0,
 ): boolean {
   const s = init();
   if (!s) return false;
@@ -164,6 +194,7 @@ export function drawGradedStill(
   gl.uniform1f(s.loc.uZoom, cam.zoom);
   gl.uniform2f(s.loc.uPan, cam.panX, cam.panY);
   gl.uniform1f(s.loc.uGrade, grade);
+  gl.uniform1f(s.loc.uTime, time);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   ctx.drawImage(s.canvas, 0, 0, w, h);
   return true;

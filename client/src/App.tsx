@@ -1,4 +1,4 @@
-import { Switch, Route, Link, useLocation } from "wouter";
+import { Switch, Route, Link, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,7 +6,7 @@ import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/comp
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import NotFound from "@/pages/not-found";
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { 
   Menu,
   LogOut,
@@ -26,9 +26,8 @@ import SellerFlow from "@/pages/orders/seller-flow";
 import DifferentDayFlow from "@/pages/orders/different-day-flow";
 import Listings from "@/pages/listings/index";
 import ListingDetails from "@/pages/listings/listing-details";
-import FeatureListing from "@/pages/listings/feature-listing";
-import OversizeFeatureSheetsOrder from "@/pages/listings/oversize-feature-sheets-order";
-import FeatureSheetBuilderPage from "@/pages/listings/feature-sheet-builder";
+import FeatureListingRedirect from "@/pages/listings/feature-listing-redirect";
+import OversizeFeatureSheetsRedirect from "@/pages/listings/oversize-feature-sheets-redirect";
 import FeatureSheetSelector from "@/pages/feature-sheet/index";
 import FeatureValidate from "@/pages/feature-validate/index";
 import OrderHistory from "@/pages/orders/history";
@@ -36,12 +35,17 @@ import OrderDetails from "@/pages/orders/order-details";
 import OrderSuccess from "@/pages/orders/order-success";
 import Profile from "@/pages/profile/index";
 import Branding from "@/pages/profile/branding";
-import ServicePreferences from "@/pages/profile/preferences";
-import ServicePreferences2 from "@/pages/profile/preferences-2";
+import AccountStatementPage from "@/pages/profile/account-statement-page";
 import DesignJob from "@/pages/design-job/index";
+import PostcardStudio from "@/pages/design-job/postcard-studio";
 import ProofReview from "@/pages/proof-review/index";
 import AiTool from "@/pages/ai-tool/index";
+import AmenitiesLookupPage from "@/pages/amenities-lookup/index";
+import BookingEnginePage from "@/pages/booking-engine/index";
+import BookingThankYouPage from "@/pages/booking-engine/thank-you";
 import { ChatWidget } from "@/components/chat/ChatWidget";
+
+const FeatureSheetBuilderPage = lazy(() => import("@/pages/listings/feature-sheet-builder"));
 
 function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
@@ -185,12 +189,21 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
     </svg>
   );
 
+  const AmenitiesIcon = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} width="24" height="24" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
+      <path d="M21 21l-6 -6" />
+    </svg>
+  );
+
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: DashboardIcon },
-    { name: 'Listing', href: '/listings', icon: HomeIcon },
-    { name: 'Design Job', href: '/design-job', icon: DesignJobIcon },
-    { name: 'Feature Sheet', href: '/feature-sheet', icon: FeatureSheetIcon },
-    { name: 'Ai Tool', href: '/ai-tool', icon: AiToolIcon },
+    { name: 'Listings', href: '/listings', icon: HomeIcon },
+    // { name: 'Design Job', href: '/design-job', icon: DesignJobIcon },
+    // { name: 'Feature Sheet', href: '/feature-sheet', icon: FeatureSheetIcon },
+    // { name: 'Ai Tool', href: '/ai-tool', icon: AiToolIcon },
+    // { name: 'Amenities Lookup', href: '/amenities-lookup', icon: AmenitiesIcon },
     { name: 'My Orders', href: '/orders', icon: CartIcon },
     { name: 'My Account', href: '/profile', icon: SettingsIcon },
   ];
@@ -278,83 +291,6 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
           })}
         </ul>
         
-        {/* Upcoming Services/Appointments - Mobile & Desktop */}
-        <ul className="space-y-1 mt-2">
-          <li className="sidebar-item">
-            {isLeftSidebarOpen ? (
-              <button
-                type="button"
-                onClick={() => {
-                  console.log("Button clicked, opening dialog and loading services");
-                  setIsUpcomingServicesOpen(true);
-                  loadUpcomingServices();
-                }}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-colors w-full border-0 bg-transparent p-0 hover:text-sidebar-foreground"
-                style={{ color: '#939598' }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#1a1a1a';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0" style={{ color: '#939598' }}>
-                  <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                  <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12z" />
-                  <path d="M16 3v4" />
-                  <path d="M8 3v4" />
-                  <path d="M4 11h16" />
-                  <path d="M7 14h.013" />
-                  <path d="M10.01 14h.005" />
-                  <path d="M13.01 14h.005" />
-                  <path d="M16.015 14h.005" />
-                  <path d="M13.015 17h.005" />
-                  <path d="M7.01 17h.005" />
-                  <path d="M10.01 17h.005" />
-                </svg>
-                <span className="text-sm font-medium whitespace-nowrap" style={{ color: '#939598' }}>Upcoming Services</span>
-              </button>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      console.log("Button clicked, opening dialog and loading services");
-                      setIsUpcomingServicesOpen(true);
-                      loadUpcomingServices();
-                    }}
-                    className="flex items-center justify-center w-12 h-12 rounded-md cursor-pointer transition-colors mx-auto border-0 bg-transparent p-0 text-sidebar-foreground/70 hover:text-sidebar-foreground"
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#1a1a1a';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                      <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12z" />
-                      <path d="M16 3v4" />
-                      <path d="M8 3v4" />
-                      <path d="M4 11h16" />
-                      <path d="M7 14h.013" />
-                      <path d="M10.01 14h.005" />
-                      <path d="M13.01 14h.005" />
-                      <path d="M16.015 14h.005" />
-                      <path d="M13.015 17h.005" />
-                      <path d="M7.01 17h.005" />
-                      <path d="M10.01 17h.005" />
-                    </svg>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="ml-2" style={{ backgroundColor: '#0F1010', color: '#fff' }}>
-                  Upcoming Services
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </li>
-        </ul>
         </nav>
 
       {/* Logout Button */}
@@ -403,7 +339,8 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
   const isFeatureListing =
     location === "/feature-listing" ||
     location === "/oversize-feature-sheets" ||
-    location === "/feature-sheet-builder";
+    location === "/feature-sheet-builder" ||
+    location.startsWith("/design-job/postcard");
 
   return (
     <div className="min-h-screen bg-background">
@@ -431,7 +368,7 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
       )}
 
       {/* New Service Appointment Button - Top Right (Mobile & Desktop) - Hide on new-appointment, listing-details and feature-listing pages */}
-      {location !== "/new-appointment" && location !== "/listing-details" && location !== "/feature-listing" && location !== "/oversize-feature-sheets" && location !== "/feature-sheet-builder" && location !== "/proof-review" && (
+      {location !== "/dashboard" && location !== "/home" && location !== "/home-2" && location !== "/orders" && location !== "/new-appointment" && location !== "/listing-details" && location !== "/feature-listing" && location !== "/oversize-feature-sheets" && location !== "/feature-sheet-builder" && location !== "/proof-review" && !location.startsWith("/design-job/postcard") && (
         <Link 
           href="/new-appointment"
           className="fixed z-[90] flex items-center justify-center text-white rounded-full transition-all hover:opacity-90 top-4 right-4 md:right-28 border border-white shrink-0"
@@ -462,81 +399,6 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
             {/* Navigation Icons */}
             <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2">
               <ul className="space-y-2">
-                {/* Notification Item */}
-                <li className="notification-1 relative group">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div 
-                        className="flex items-center justify-center w-12 h-12 rounded-md cursor-pointer transition-colors mx-auto"
-                        style={{ color: '#939598' }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#1a1a1a';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = 'transparent';
-                        }}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#939598' }}>
-                          <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                          <path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6" />
-                          <path d="M9 17v1a3 3 0 0 0 6 0v-1" />
-                        </svg>
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent side="left" className="ml-2" style={{ backgroundColor: '#0F1010', color: '#fff' }}>
-                      Notifications
-                    </TooltipContent>
-                  </Tooltip>
-                  <div className="hover-panel absolute left-full ml-4 top-0 w-64 bg-sidebar-accent border border-sidebar-border rounded-lg p-4 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
-                    <h6 className="mb-1 font-semibold">Notifications</h6>
-                    <p className="mb-0 text-sm text-sidebar-foreground/70">You have 3 new alerts.</p>
-                  </div>
-                  <div className="border-b mt-2 w-full" style={{ borderColor: '#202226' }}></div>
-                </li>
-
-                {/* Calendar/Upcoming Services Item */}
-                <li className="notification-1 relative">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          console.log("Button clicked, opening dialog and loading services");
-                          setIsUpcomingServicesOpen(true);
-                          loadUpcomingServices();
-                        }}
-                        className="flex items-center justify-center w-12 h-12 rounded-md cursor-pointer transition-colors mx-auto border-0 bg-transparent p-0"
-                        style={{ color: '#939598' }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#1a1a1a';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = 'transparent';
-                        }}
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#939598' }}>
-                          <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                          <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12z" />
-                          <path d="M16 3v4" />
-                          <path d="M8 3v4" />
-                          <path d="M4 11h16" />
-                          <path d="M7 14h.013" />
-                          <path d="M10.01 14h.005" />
-                          <path d="M13.01 14h.005" />
-                          <path d="M16.015 14h.005" />
-                          <path d="M13.015 17h.005" />
-                          <path d="M7.01 17h.005" />
-                          <path d="M10.01 17h.005" />
-                        </svg>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left" className="ml-2" style={{ backgroundColor: '#0F1010', color: '#fff' }}>
-                      Upcoming Services
-                    </TooltipContent>
-                  </Tooltip>
-                  <div className="border-b mt-2 w-full" style={{ borderColor: '#202226' }}></div>
-                </li>
-
                 {/* Summary Item */}
                 <li className="notification-1 relative group">
                   <Tooltip>
@@ -746,9 +608,21 @@ function DashboardLayout({ children }: { children: React.ReactNode }) {
         </DialogContent>
       </Dialog>
 
-      <ChatWidget />
+      {/* Popup chat — temporarily hidden for V1. */}
+      {false && <ChatWidget />}
     </div>
   );
+}
+
+function NewOrderRedirect() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    const search = typeof window !== "undefined" ? window.location.search : "";
+    setLocation(`/new-appointment${search}`);
+  }, [setLocation]);
+
+  return null;
 }
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -788,6 +662,16 @@ function Router() {
       <Route path="/register" component={Register} />
       <Route path="/forgot-password" component={ForgotPassword} />
 
+      <Route path="/design-job/postcard">
+        {() => (
+          <ProtectedRoute>
+            <DashboardLayout>
+              <PostcardStudio />
+            </DashboardLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+
       {/* Dashboard Routes - Protected and Wrapped in DashboardLayout */}
       <Route path="/:rest*">
         {(params) => (
@@ -798,13 +682,22 @@ function Router() {
                 <Route path="/home" component={Home} />
               <Route path="/home-2" component={Home2} />
               <Route path="/new-appointment" component={NewOrder} />
+              <Route path="/booking-engine" component={BookingEnginePage} />
+              <Route path="/booking-thank-you" component={BookingThankYouPage} />
+              <Route path="/new-order" component={NewOrderRedirect} />
               <Route path="/seller-flow" component={SellerFlow} />
               <Route path="/different-day-flow" component={DifferentDayFlow} />
               <Route path="/listings" component={Listings} />
               <Route path="/listing-details" component={ListingDetails} />
-              <Route path="/feature-listing" component={FeatureListing} />
-              <Route path="/oversize-feature-sheets" component={OversizeFeatureSheetsOrder} />
-              <Route path="/feature-sheet-builder" component={FeatureSheetBuilderPage} />
+              <Route path="/feature-listing" component={FeatureListingRedirect} />
+              <Route path="/oversize-feature-sheets" component={OversizeFeatureSheetsRedirect} />
+              <Route path="/feature-sheet-builder">
+                {() => (
+                  <Suspense fallback={<div className="p-8 text-white/70">Loading editor…</div>}>
+                    <FeatureSheetBuilderPage />
+                  </Suspense>
+                )}
+              </Route>
               <Route path="/feature-sheet" component={FeatureSheetSelector} />
               <Route path="/feature-validate" component={FeatureValidate} />
               <Route path="/orders" component={OrderHistory} />
@@ -812,11 +705,15 @@ function Router() {
               <Route path="/order-success" component={OrderSuccess} />
               <Route path="/profile" component={Profile} />
               <Route path="/branding" component={Branding} />
-              <Route path="/preferences" component={ServicePreferences} />
-              <Route path="/preferences-2" component={ServicePreferences2} />
+              <Route path="/preferences"><Redirect to="/profile" /></Route>
+              <Route path="/preferences-2"><Redirect to="/profile" /></Route>
+              <Route path="/media-preferences"><Redirect to="/profile" /></Route>
+              <Route path="/account-statement" component={AccountStatementPage} />
+              <Route path="/design-job/postcard" component={PostcardStudio} />
               <Route path="/design-job" component={DesignJob} />
               <Route path="/proof-review" component={ProofReview} />
               <Route path="/ai-tool" component={AiTool} />
+              <Route path="/amenities-lookup" component={AmenitiesLookupPage} />
               <Route component={NotFound} />
             </Switch>
           </DashboardLayout>

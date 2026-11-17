@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Link } from "wouter";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Link, useSearch } from "wouter";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import cardImg from "@/pages/images/card.png";
 import lightLogo from "@/pages/images/logos/light-logo.svg";
-import heroBg from "@/pages/images/new-bg-1.jpg";
+import heroBg from "@/pages/images/banner-09.png";
 import photoFallback from "@/pages/images/standard-real-estate-photography-4-1024x683.jpg";
 import videoFallback from "@/pages/images/hdr.jpg";
 import floorFallback from "@/pages/images/img-5.png";
@@ -32,6 +32,7 @@ import {
   createPortalOrder,
   addOrder,
   getOrderOptions,
+  getCoRealtorList,
   getPortalListings,
   getStripeConfig,
   getStripePaymentMethods,
@@ -492,6 +493,51 @@ export default function NewOrder() {
   } | null>(null);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [videoOrientation, setVideoOrientation] = useState<"horizontal" | "vertical" | "">("");
+  const [propertyType, setPropertyType] = useState<"residential" | "commercial">("residential");
+  const [isCoListed, setIsCoListed] = useState<"yes" | "no">("no");
+  const [coRealtors, setCoRealtors] = useState<Array<{ name: string; username: string }>>([]);
+  const [coRealtorsLoading, setCoRealtorsLoading] = useState(false);
+  const [coRealtorKey, setCoRealtorKey] = useState("");
+  const [coRealtorQuery, setCoRealtorQuery] = useState("");
+  const [coRealtorOpen, setCoRealtorOpen] = useState(false);
+  const [includeDecks, setIncludeDecks] = useState(false);
+  const [sellerName, setSellerName] = useState("");
+  const [sellerPhone, setSellerPhone] = useState("");
+  const [sellerNotes, setSellerNotes] = useState("");
+  const [sellerConfirmed, setSellerConfirmed] = useState(false);
+  const [orderNotes, setOrderNotes] = useState("");
+  const [priceConsent, setPriceConsent] = useState(false);
+
+  useEffect(() => {
+    if (isCoListed !== "yes" || coRealtors.length || coRealtorsLoading) return;
+    setCoRealtorsLoading(true);
+    getCoRealtorList()
+      .then((res) => {
+        const list = Array.isArray(res.list) ? res.list : [];
+        setCoRealtors(list.filter((r) => r && String(r.name || "").trim()));
+      })
+      .catch((err) => console.error("Failed to load co-listing realtors", err))
+      .finally(() => setCoRealtorsLoading(false));
+  }, [isCoListed, coRealtors.length, coRealtorsLoading]);
+
+  const selectedCoRealtor = useMemo(
+    () => coRealtors.find((r) => r.name === coRealtorKey) || null,
+    [coRealtors, coRealtorKey],
+  );
+
+  const coRealtorMatches = useMemo(() => {
+    const q = coRealtorQuery.trim().toLowerCase();
+    const list = q
+      ? coRealtors.filter((r) => r.name.toLowerCase().includes(q) || r.username.toLowerCase().includes(q))
+      : coRealtors;
+    return list.slice(0, 50);
+  }, [coRealtors, coRealtorQuery]);
+
+  const search = useSearch();
+  const urlTourId = useMemo(() => {
+    const p = new URLSearchParams(search);
+    return (p.get("tourid") || p.get("tour_id") || "").trim();
+  }, [search]);
 
   useEffect(() => {
     // Get user name from localStorage
@@ -548,6 +594,20 @@ export default function NewOrder() {
     loadStripe();
   }, []);
 
+  useEffect(() => {
+    if (!urlTourId) return;
+    const match = myListings.find((t) => String(t.tourid) === urlTourId);
+    if (match) {
+      const addr = `${match.address || ""}${match.city ? `, ${match.city}` : ""}`.trim();
+      setSelectedListingId(String(match.tourid));
+      if (addr) setListingAddress(addr);
+      setUseGooglePlaces(false);
+    } else {
+      setSelectedListingId(urlTourId);
+      setListingAddress((prev) => prev || `Tour ${urlTourId}`);
+    }
+  }, [urlTourId, myListings]);
+
   // Handle address input change and detect if it's from listings
   const handleAddressChange = useCallback((value: string) => {
     setListingAddress(value);
@@ -566,12 +626,20 @@ export default function NewOrder() {
     }
   }, [myListings]);
 
+  const addressChangeRef = useRef(handleAddressChange);
+  addressChangeRef.current = handleAddressChange;
+  const autocompleteInputRef = useRef<HTMLInputElement | null>(null);
+
   // Initialize Google Places Autocomplete (always enabled for Canada addresses)
   useEffect(() => {
     if (window.google?.maps?.places) {
       // Small delay to ensure input is rendered
       const timer = setTimeout(() => {
         const addressInput = document.getElementById("address") as HTMLInputElement;
+        if (addressInput && autocompleteInputRef.current !== addressInput && autocompleteRef.current) {
+          window.google?.maps?.event?.clearInstanceListeners(autocompleteRef.current);
+          autocompleteRef.current = null;
+        }
         if (addressInput && !autocompleteRef.current && window.google && window.google.maps && window.google.maps.places) {
           // Initialize Google Places Autocomplete for Canada
           const autocomplete = new window.google.maps.places.Autocomplete(addressInput, {
@@ -583,7 +651,7 @@ export default function NewOrder() {
           autocomplete.addListener("place_changed", () => {
             const place = autocomplete.getPlace();
             if (place.formatted_address) {
-              handleAddressChange(place.formatted_address);
+              addressChangeRef.current(place.formatted_address);
               // Extract city from address components
               const cityComponent = place.address_components?.find(
                 (component) => component.types.includes("locality") || component.types.includes("administrative_area_level_2")
@@ -595,6 +663,7 @@ export default function NewOrder() {
           });
 
           autocompleteRef.current = autocomplete;
+          autocompleteInputRef.current = addressInput;
         }
       }, 100);
 
@@ -602,7 +671,7 @@ export default function NewOrder() {
         clearTimeout(timer);
       };
     }
-  }, [handleAddressChange]); // Include handleAddressChange in dependencies
+  }, [openAccordion]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -883,6 +952,18 @@ export default function NewOrder() {
       alert("Please enter home size");
       return;
     }
+    if (isCoListed === "yes" && !selectedCoRealtor) {
+      alert("Please select the connected realtor for this co-listing");
+      return;
+    }
+    if (dateTimePreference === "contact" && (!sellerName.trim() || !sellerPhone.trim())) {
+      alert("Please enter the seller name and phone number");
+      return;
+    }
+    if (!priceConsent) {
+      alert("Please confirm you understand the final price may vary");
+      return;
+    }
     if (orderItems.length === 0) {
       alert("Please select at least one service");
       return;
@@ -939,7 +1020,17 @@ export default function NewOrder() {
       const holdername = (document.getElementById("holdername") as HTMLInputElement)?.value || "";
       const saveCardCheckbox = document.getElementById("savecarddetails") as HTMLInputElement;
       const savecarddetails = saveCardCheckbox?.checked || false;
-      const notes = (document.querySelector("textarea") as HTMLTextAreaElement)?.value || "";
+      const sellerLine =
+        dateTimePreference === "contact" && (sellerName || sellerPhone || sellerNotes)
+          ? `Seller: ${[sellerName, sellerPhone, sellerNotes].filter(Boolean).join(" / ")}`
+          : "";
+      const notes = [
+        orderNotes.trim(),
+        sellerLine,
+        includeDecks ? "Floorplan: include decks/patios/outbuildings" : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
       const photographer = ""; // Get from photographer selection if available
 
       // Extract city from address (you might want to improve this)
@@ -1068,6 +1159,14 @@ export default function NewOrder() {
         is_same_date: dateTimePreference === "same" || dateTimePreference === "asap",
         homesize: String(homesize || "2000"),
         lotsize: "100",
+        property_type: propertyType,
+        colisted: isCoListed,
+        colisted_realtor: isCoListed === "yes" ? selectedCoRealtor?.username || "" : "",
+        colisted_realtor_name: isCoListed === "yes" ? selectedCoRealtor?.name || "" : "",
+        floorplan_options: includeDecks ? ["include_decks_patios_outbuildings"] : [],
+        seller_name: dateTimePreference === "contact" ? sellerName : "",
+        seller_phone: dateTimePreference === "contact" ? sellerPhone : "",
+        seller_notes: dateTimePreference === "contact" ? sellerNotes : "",
         notes: notes || "New appointment from customer portal",
         photographer: photographer || "",
         tour_id: tourId,
@@ -1384,8 +1483,10 @@ export default function NewOrder() {
       }
 
       try {
+        const nickname = ((document.getElementById("cardnickname") as HTMLInputElement)?.value || "").trim();
         const saved = await addStripePaymentMethod(paymentMethodId, saveCard, {
           name: holdername.trim(),
+          ...(nickname ? { nickname } : {}),
         });
         if ((saved as { status?: boolean }).status === false) {
           throw new Error(
@@ -1437,25 +1538,22 @@ export default function NewOrder() {
           <div className="w-full md:w-9/12 p-0">
             {/* Hero Section */}
             <div
-              className="new-bg-1 w-full relative"
+              className="w-full text-white px-6 md:px-10 pt-12 pb-12 md:pt-[100px] md:pb-[50px] h-[25vh] md:h-[45vh] min-h-[180px]"
               style={{
                 backgroundImage: `url(${heroBg})`,
                 backgroundSize: "cover",
-                backgroundPosition: "center center",
-                height: "60vh",
-                minHeight: "200px",
+                backgroundPosition: "bottom",
               }}
             >
-              <div className="absolute inset-0 bg-black/40" />
-              <div className="relative h-full flex flex-col justify-end p-6 md:p-8 z-10">
-                <div className="overlay-1">
-                  <h1 className="text-white text-[32px] md:text-[40px] lg:text-[40px] font-semibold leading-tight">
-                    Let's book your appointment,
+              <h1 className="text-white text-[28px] md:text-[36px] font-medium leading-snug mb-2.5">
+                Let’s book your appointment,
+                {userName ? (
+                  <>
                     <br />
-                    {userName ? capitalizeFirstLetter(userName) : "Chelsea"}
-                  </h1>
-                </div>
-              </div>
+                    {capitalizeFirstLetter(userName)}
+                  </>
+                ) : null}
+              </h1>
             </div>
             <Accordion
               type="single"
@@ -1486,7 +1584,7 @@ export default function NewOrder() {
                   <div className="form-section">
                     <div className="mb-4 flex items-center gap-3">
                       <span className="icon-label flex-shrink-0">
-                        <MapPin className="h-5 w-5 text-white/70" />
+                        <MapPin className="h-6 w-6 text-[#b084f0]" fill="#b084f0" stroke="#222023" />
                       </span>
                       <div className="flex-grow" style={{ marginTop: "0.5rem" }}>
                         <Label htmlFor="address" className="text-white/70 mb-2 block" style={{ marginTop: "0.75rem" }}>
@@ -1557,7 +1655,7 @@ export default function NewOrder() {
                     </div>
                     <div className="mb-4 flex items-center gap-3">
                       <span className="icon-label flex-shrink-0">
-                        <Ruler className="h-5 w-5 text-white/70" />
+                        <Ruler className="h-6 w-6 text-[#b084f0]" />
                       </span>
                       <div className="flex-grow">
                         <Label htmlFor="size" className="text-white/70 mb-2 block" style={{ marginTop: "0.75rem" }}>
@@ -1577,28 +1675,111 @@ export default function NewOrder() {
                         />
                       </div>
                     </div>
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={async (event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          const sizeValue = listingSize || "2000";
-                          setListingSize(sizeValue);
-                          setHomesize(sizeValue);
-                          handleSaveListingDetails();
-                          setListingDetailsSaved(true);
-                          await loadOrderOptions(sizeValue);
-                          setOpenAccordion("category-photography");
-                        }}
-                        className={`border-2 border-white text-white px-4 py-2 rounded-md hover:bg-white/10 flex items-center gap-2 transition-colors ${
-                          listingDetailsSaved ? "bg-green-400/30 border-green-400" : ""
-                        }`}
+                    <h6 className="text-white mb-3">Property Type</h6>
+                    <div className="photography flex flex-wrap mb-4">
+                      <label
+                        className={`btn ${propertyType === "residential" ? "active" : ""}`}
+                        onClick={() => setPropertyType("residential")}
                       >
-                        <Check className="h-4 w-4" />
-                        Save Selection
-                      </button>
+                        Residential
+                      </label>
+                      <label
+                        className={`btn ${propertyType === "commercial" ? "active" : ""}`}
+                        onClick={() => setPropertyType("commercial")}
+                      >
+                        Commercial
+                      </label>
                     </div>
+                    <h6 className="text-white mb-3">Is this Co-Listed?</h6>
+                    <div className="photography flex flex-wrap mb-4">
+                      <label
+                        className={`btn ${isCoListed === "yes" ? "active" : ""}`}
+                        onClick={() => setIsCoListed("yes")}
+                      >
+                        Yes
+                      </label>
+                      <label
+                        className={`btn ${isCoListed === "no" ? "active" : ""}`}
+                        onClick={() => {
+                          setIsCoListed("no");
+                          setCoRealtorKey("");
+                        }}
+                      >
+                        No
+                      </label>
+                    </div>
+                    {isCoListed === "yes" && (
+                      <div className="mb-6 relative">
+                        <Input
+                          type="text"
+                          value={coRealtorOpen ? coRealtorQuery : selectedCoRealtor?.name || coRealtorQuery}
+                          placeholder={coRealtorsLoading ? "Loading realtors..." : "Select Connected Realtor"}
+                          className="bg-black/40 border-white/20 text-white"
+                          style={{ paddingTop: "0.75rem", paddingBottom: "0.75rem" }}
+                          onFocus={() => {
+                            setCoRealtorOpen(true);
+                            setCoRealtorQuery("");
+                          }}
+                          onBlur={() => window.setTimeout(() => setCoRealtorOpen(false), 150)}
+                          onChange={(e) => {
+                            setCoRealtorQuery(e.target.value);
+                            setCoRealtorKey("");
+                            setCoRealtorOpen(true);
+                          }}
+                        />
+                        {coRealtorOpen && !coRealtorsLoading && (
+                          <ul className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto rounded-md border border-white/20 bg-[#1c1a1d] py-1 shadow-lg">
+                            {coRealtorMatches.length === 0 ? (
+                              <li className="px-3 py-2 text-sm text-white/50">No connected realtors found.</li>
+                            ) : (
+                              coRealtorMatches.map((realtor) => (
+                                <li key={realtor.name}>
+                                  <button
+                                    type="button"
+                                    className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 ${
+                                      coRealtorKey === realtor.name ? "text-[#b388ff]" : "text-white"
+                                    }`}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setCoRealtorKey(realtor.name);
+                                      setCoRealtorQuery("");
+                                      setCoRealtorOpen(false);
+                                    }}
+                                  >
+                                    {realtor.name}
+                                    {realtor.username ? (
+                                      <span className="text-white/40"> ({realtor.username})</span>
+                                    ) : null}
+                                  </button>
+                                </li>
+                              ))
+                            )}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                    <SelectionBar
+                      onClear={() => {
+                        setListingAddress("");
+                        setSelectedListingId("");
+                        setUseGooglePlaces(true);
+                        setListingSize("");
+                        setHomesize("");
+                        setPropertyType("residential");
+                        setIsCoListed("no");
+                        setCoRealtorKey("");
+                        setListingDetailsSaved(false);
+                      }}
+                      onConfirm={async () => {
+                        const sizeValue = listingSize || "2000";
+                        setListingSize(sizeValue);
+                        setHomesize(sizeValue);
+                        handleSaveListingDetails();
+                        setListingDetailsSaved(true);
+                        await loadOrderOptions(sizeValue);
+                        setOpenAccordion("category-photography");
+                      }}
+                    />
                   </div>
                 </AccordionContent>
               </AccordionItem>
@@ -1770,11 +1951,31 @@ export default function NewOrder() {
                           </>
                         ) : null}
 
+                        {section.key === "FloorplansandMatterport" ? (
+                          <>
+                            <h6 className="text-white mb-3 mt-3">Floorplan Options</h6>
+                            <div className="photography flex flex-wrap mb-4">
+                              <label
+                                className={`btn ${includeDecks ? "active" : ""}`}
+                                onClick={() => setIncludeDecks((v) => !v)}
+                              >
+                                Include Decks/Patios/Outbuildings
+                              </label>
+                            </div>
+                          </>
+                        ) : null}
+
                         {!section.services.length && !section.extras.length && !section.printAddons.length ? (
                           <p className="text-white/70">No services available for this home size</p>
                         ) : null}
 
                         <SelectionBar
+                          confirmLabel={
+                            section.key === "videography" &&
+                            !orderItems.some((item) => item.category.toLowerCase() === section.title.toLowerCase())
+                              ? "NO THANKS"
+                              : "CONFIRM SELECTION"
+                          }
                           onClear={() => {
                             setOrderItems((prev) => {
                               const filtered = prev.filter((item) =>
@@ -2074,6 +2275,25 @@ export default function NewOrder() {
                   {dateTimePreference === "contact" && (
                   <div className="mt-8">
                     <h5 className="text-white mb-4">Contact my seller</h5>
+                    {sellerConfirmed ? (
+                      <div className="mb-4">
+                        <h6 className="text-white mb-4">Seller Details</h6>
+                        <div className="border-l border-white/30 pl-3">
+                          <p className="mb-1 text-white">{sellerName}</p>
+                          <p className="mb-1 text-white">{sellerPhone}</p>
+                          <p className="text-white">
+                            {sellerNotes}{" "}
+                            <button
+                              type="button"
+                              className="text-[#b388ff] text-sm font-semibold ml-2"
+                              onClick={() => setSellerConfirmed(false)}
+                            >
+                              CHANGE
+                            </button>
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
                     <div className="form-section">
                       <div className="mb-4">
                         <Label htmlFor="seller" className="text-white/70 mb-2 block" style={{ marginTop: "0.75rem" }}>
@@ -2082,7 +2302,8 @@ export default function NewOrder() {
                         <Input
                           type="text"
                           id="seller"
-                          defaultValue="Chelsea"
+                          value={sellerName}
+                          onChange={(e) => setSellerName(e.target.value)}
                           className="bg-black/40 border-white/20 text-white"
                           style={{ paddingTop: "0.75rem", paddingBottom: "0.75rem" }}
                         />
@@ -2092,9 +2313,10 @@ export default function NewOrder() {
                           Phone Number
                         </Label>
                         <Input
-                          type="text"
+                          type="tel"
                           id="phone"
-                          defaultValue="778-650-0509"
+                          value={sellerPhone}
+                          onChange={(e) => setSellerPhone(e.target.value)}
                           className="bg-black/40 border-white/20 text-white"
                           style={{ paddingTop: "0.75rem", paddingBottom: "0.75rem" }}
                         />
@@ -2106,18 +2328,31 @@ export default function NewOrder() {
                         <Input
                           type="text"
                           id="seller-notes"
-                          defaultValue="Call in the afternoon"
+                          value={sellerNotes}
+                          onChange={(e) => setSellerNotes(e.target.value)}
+                          placeholder="e.g. Call in the afternoon"
                           className="bg-black/40 border-white/20 text-white"
                           style={{ paddingTop: "0.75rem", paddingBottom: "0.75rem" }}
                         />
                       </div>
                       <div className="text-end">
-                        <button className="save-btn bg-[#b388ff] hover:bg-[#b388ff]/80 text-white px-6 py-2 rounded-full font-semibold flex items-center gap-2 mx-auto md:mx-0">
+                        <button
+                          type="button"
+                          className="save-btn bg-[#b388ff] hover:bg-[#b388ff]/80 text-white px-6 py-2 rounded-full font-semibold flex items-center gap-2 mx-auto md:mx-0"
+                          onClick={() => {
+                            if (!sellerName.trim() || !sellerPhone.trim()) {
+                              alert("Please enter the seller name and phone number");
+                              return;
+                            }
+                            setSellerConfirmed(true);
+                          }}
+                        >
                           <Check className="h-4 w-4" />
                           CONFIRM SELECTION
                         </button>
                       </div>
                     </div>
+                    )}
                   </div>
                   )}
                 </AccordionContent>
@@ -2268,6 +2503,17 @@ export default function NewOrder() {
                       />
                     </div>
                     <div className="w-full md:w-6/12 mb-4">
+                      <Label htmlFor="cardnickname" className="text-white/70 mb-2 block" style={{ marginTop: "0.75rem" }}>
+                        Nickname (optional)
+                      </Label>
+                      <Input
+                        type="text"
+                        id="cardnickname"
+                        className="bg-black/40 border-white/20 text-white"
+                        style={{ paddingTop: "0.75rem", paddingBottom: "0.75rem" }}
+                      />
+                    </div>
+                    <div className="w-full md:w-6/12 mb-4">
                       <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
@@ -2387,18 +2633,33 @@ export default function NewOrder() {
               <div className="mb-4 additional">
                 <Textarea
                   rows={5}
+                  value={orderNotes}
+                  onChange={(e) => setOrderNotes(e.target.value)}
                   placeholder="Additional notes about your order..."
                   className="bg-black/40 border-white/20 text-white placeholder:text-white/50"
                 />
               </div>
+              <label className="flex items-start gap-2 mb-4 text-sm text-white/80 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={priceConsent}
+                  onChange={(e) => setPriceConsent(e.target.checked)}
+                  className="mt-1 h-4 w-4 flex-shrink-0"
+                  style={{ accentColor: "#b388ff" }}
+                />
+                <span>
+                  I understand that the final price of my order may vary from the estimated price upon booking based on
+                  services completed.
+                </span>
+              </label>
               <div className="mb-4">
                 <button 
                   onClick={handleSubmitOrder}
-                  disabled={submittingOrder}
+                  disabled={submittingOrder || !priceConsent}
                   className="btn btn-custom w-full text-white px-6 py-3 rounded-full font-semibold disabled:opacity-50 hover:opacity-90 transition-opacity"
                   style={{ backgroundColor: "#302639" }}
                 >
-                  {submittingOrder ? "Submitting..." : "Book appointment"}
+                  {submittingOrder ? "Submitting..." : "BOOK APPOINTMENT"}
                 </button>
               </div>
             </aside>

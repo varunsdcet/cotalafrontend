@@ -297,7 +297,7 @@ export default function Register() {
                 height={50}
               />
               <div>
-                <h5 className="fw-semibold mb-0">1800-345-242&nbsp;</h5>
+                <h5 className="fw-semibold mb-0">604-514-9589&nbsp;</h5>
               </div>
             </div>
           </div>

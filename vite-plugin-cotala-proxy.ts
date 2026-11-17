@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "http";
 import type { Plugin } from "vite";
 
-const CANADA_ORIGIN = "https://cotala.com";
-const CANADA_PORTAL = "https://cotala.com/newcotala24/";
-const API_PREFIX = "/newcotala24/webapi2025dec/api";
+const CANADA_ORIGIN = "https://appslure.app";
+const CANADA_PORTAL = "https://appslure.app/cotalacustomer/";
+const API_PREFIX = "/cotalacustomer/api";
 const LOCAL_PREFIX = "/cotala-api";
 const CHROME_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";

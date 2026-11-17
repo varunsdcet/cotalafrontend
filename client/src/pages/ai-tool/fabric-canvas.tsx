@@ -29,6 +29,24 @@ const SELECT_STYLE = {
   padding: 0,
 };
 
+function shapeFill(fabric: Fabric, fill: string | undefined, _w: number, h: number) {
+  if (!fill) return undefined;
+  const match = fill.match(/^linear-gradient\(\s*to\s+(top|bottom)\s*,\s*(.+)\s*,\s*(.+)\s*\)$/i);
+  if (!match) return fill;
+  const toTop = match[1].toLowerCase() === "top";
+  const first = match[2].trim() === "transparent" ? "rgba(0,0,0,0)" : match[2].trim();
+  const second = match[3].trim() === "transparent" ? "rgba(0,0,0,0)" : match[3].trim();
+  return new fabric.Gradient({
+    type: "linear",
+    gradientUnits: "pixels",
+    coords: { x1: 0, y1: 0, x2: 0, y2: h },
+    colorStops: [
+      { offset: 0, color: toTop ? second : first },
+      { offset: 1, color: toTop ? first : second },
+    ],
+  });
+}
+
 function fontFamily(font: string) {
   return (FONT_FAMILIES[font] ?? FONT_FAMILIES.body).split(",")[0]!.replace(/['"]/g, "").trim();
 }
@@ -125,7 +143,7 @@ export default function FabricCanvasView({
         height: design.height,
         preserveObjectStacking: true,
         selection: false,
-        backgroundColor: "#101214",
+        backgroundColor: design.pages[0]?.objects.some((o) => o.id === "hero_2") ? "#ffffff" : "#101214",
         stopContextMenu: true,
         uniformScaling: false,
       });
@@ -223,7 +241,9 @@ export default function FabricCanvasView({
         case "image": {
           const url = obj.assetId;
           if (!url) return new fabric.Rect({ ...ORIGIN, left: obj.x, top: obj.y, width: obj.w, height: obj.h, fill: "#222" });
-          const img = await fabric.FabricImage.fromURL(url, { crossOrigin: "anonymous" }).catch(() => null);
+          const img = await fabric.FabricImage.fromURL(url, { crossOrigin: "anonymous" }).catch(() =>
+            fabric.FabricImage.fromURL(url).catch(() => null),
+          );
           if (!img) return new fabric.Rect({ ...ORIGIN, left: obj.x, top: obj.y, width: obj.w, height: obj.h, fill: "#222" });
           fitImage(img, obj.w, obj.h, obj.fit);
           img.set({ ...ORIGIN, left: obj.x, top: obj.y });
@@ -248,7 +268,7 @@ export default function FabricCanvasView({
         }
         case "shape": {
           const points = SHAPE_POINTS[obj.shape];
-          const fill = obj.fill ? brandColor(obj.fill, b) : undefined;
+          const fill = obj.fill ? shapeFill(fabric, brandColor(obj.fill, b), obj.w, obj.h) : undefined;
           if (points) {
             const poly = new fabric.Polygon(
               points.split(" ").map((pair) => {
@@ -272,6 +292,7 @@ export default function FabricCanvasView({
             fill,
             rx: obj.radius,
             ry: obj.radius,
+            objectCaching: false,
           });
         }
         case "logo": {

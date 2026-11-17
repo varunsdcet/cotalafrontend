@@ -62,6 +62,15 @@ export function uniquePhotos(urls: string[], tourId?: string): string[] {
   return out;
 }
 
+/** Put likely exterior shots first, then interiors — used for reels/slideshows. */
+export function orderedListingPhotos(photos: string[]): string[] {
+  if (photos.length <= 4) return photos;
+  const exteriorCount = Math.min(3, Math.max(1, Math.ceil(photos.length * 0.22)));
+  const exterior = photos.slice(0, exteriorCount);
+  const interior = photos.slice(exteriorCount);
+  return [...exterior, ...interior];
+}
+
 export function listingCoverUrl(listing: {
   tourid?: string | number;
   cover_image?: string;
@@ -106,12 +115,27 @@ export function listingVideoFileUrl(raw: unknown, tourId: string): string {
   const s = String(raw || "").trim();
   if (!s || s === "0" || /^(yes|no|true|false)$/i.test(s)) return "";
   if (youtubeIdFrom(s)) return "";
-  if (/^https?:\/\//i.test(s) && /\.(mp4|mov|m4v|webm)(\?|$)/i.test(s)) return s;
-  if (/^https?:\/\//i.test(s) && !/youtu/i.test(s)) return s;
-  if (/\.(mp4|mov|m4v|webm)$/i.test(s)) {
+  if (/\.(jpe?g|png|gif|webp|bmp|svg|avif)(\?|#|$)/i.test(s)) return "";
+  if (/^https?:\/\//i.test(s) && /youtu/i.test(s)) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(s)) {
     return `https://www.cotala.com/tours/${tourId}/${s.replace(/^\//, "")}`;
   }
   return "";
+}
+
+export function listingVideoCandidates(tourId: string, fileUrl?: string): string[] {
+  const out: string[] = [];
+  const add = (url: string) => {
+    if (url && !out.includes(url)) out.push(url);
+  };
+  add(listingVideoFileUrl(fileUrl, tourId));
+  if (!fileUrl && !out.length) return out;
+  add(`https://www.cotala.com/tours/${tourId}/${tourId}.mp4`);
+  add(`https://www.cotala.com/tours/${tourId}/${tourId}_video.mp4`);
+  add(`https://www.cotala.com/tours/${tourId}/tour.mp4`);
+  add(`https://www.cotala.com/tours/${tourId}/video.mp4`);
+  return out;
 }
 
 export function collectListingVideo(
@@ -120,14 +144,19 @@ export function collectListingVideo(
 ): { fileUrl: string; youtubeUrl: string } {
   let fileUrl = "";
   let youtubeUrl = "";
+  let shouldProbe = false;
   for (const src of sources) {
     if (!src) continue;
-    if (!fileUrl) {
-      fileUrl = listingVideoFileUrl(src.videodownload ?? src.video ?? src.video_url, tourId);
-    }
+    const raw = src.videodownload ?? src.video ?? src.video_url ?? src.videourl ?? src.mp4;
+    const s = String(raw ?? "").trim();
+    if (s && s !== "0" && !/^(yes|no|true|false)$/i.test(s) && !youtubeIdFrom(s)) shouldProbe = true;
+    if (!fileUrl) fileUrl = listingVideoFileUrl(raw, tourId);
     if (!youtubeUrl) {
       youtubeUrl = youtubeWatchUrl(src.YouTube ?? src.youtube ?? src.video ?? src.videodownload);
     }
+  }
+  if (!fileUrl && shouldProbe && !youtubeUrl) {
+    fileUrl = `https://www.cotala.com/tours/${tourId}/${tourId}.mp4`;
   }
   return { fileUrl, youtubeUrl };
 }

@@ -6,6 +6,7 @@ import {
   type ListingWithMlx2Tour,
   type ListingWithMlx2Response,
 } from "@/lib/api";
+import { persistFeatureSheetBuilderSnapshot } from "@/lib/start-feature-sheet";
 
 // Temporary hardcoded scrape/validator response for MLS R3095036.
 // The external scrape API is still called, but this object will override
@@ -899,6 +900,16 @@ export default function FeatureSheetSelector() {
                               JSON.stringify(selection),
                             );
                             try {
+                              await persistFeatureSheetBuilderSnapshot({
+                                tourId: String(selectedTour.tourid),
+                                listingAddress: fullAddressSel,
+                                agent: merged.agent,
+                                selection,
+                              });
+                            } catch (persistErr) {
+                              console.warn("Feature sheet snapshot persist failed", persistErr);
+                            }
+                            try {
                               const agentStored = window.localStorage.getItem(
                                 "cotala_feature_sheet_agent",
                               );
@@ -925,7 +936,7 @@ export default function FeatureSheetSelector() {
                             } catch {
                               /* ignore */
                             }
-                            setLocation(`/feature-listing?id=${selectedTour.tourid}`);
+                            setLocation(`/feature-sheet-builder?id=${selectedTour.tourid}`);
                           } catch (err) {
                             console.error("Failed to store feature sheet selection", err);
                           } finally {
